@@ -10,8 +10,8 @@ android {
         applicationId "org.vrupl.holodeck"
         minSdk 30
         targetSdk 33
-        versionCode 26092902
-        versionName "26.0929.02"
+        versionCode 26092903
+        versionName "26.0929.03"
         // set up targets
         ndk {
             abiFilters 'arm64-v8a', 'x86_64'
