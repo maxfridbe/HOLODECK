@@ -83,6 +83,19 @@ Versions are `YY.MMDD.##` — for example `26.0929.03` is the third release of 2
 
 **One-time setup:** enable GitHub Pages under *Settings → Pages → Source: GitHub Actions* so the first deploy can publish the playable build.
 
+### Icons
+
+[`web/favicon.svg`](web/favicon.svg) is the one source for every icon:
+
+| Where | What |
+|-------|------|
+| Browser | the SVG itself (favicon) |
+| Android 8+ | a vector adaptive icon hand-drawn from the SVG: `assets/android-res/drawable/ic_launcher_{background,foreground}.xml` + `mipmap-anydpi-v26/ic_launcher.xml`. Solid colours only, because cargo-apk compiles with `aapt`, which cannot read gradients |
+| Android 7 and older | `assets/android-res/mipmap-*/ic_launcher.png`, rendered from the SVG |
+| macOS | `assets/macos-icon.png` (1024px), rendered from the SVG |
+
+After editing the SVG run `./make_icons.sh` (needs `cargo install resvg --locked`) and update the vector foreground to match. Both Android build paths use `assets/android-res` (`resources = ...` in `Cargo.toml`, `res.srcDirs` in `app/build.gradle`).
+
 ### Development hooks
 
 `HOLODECK_SCRIPT` runs scripted steps for smoke tests and screenshots (see `src/devtools.rs`):

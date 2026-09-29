@@ -70,6 +70,12 @@ codegen-units = 1
 package = "com.vrupl.holodeck"
 label = "Holodeck"
 assets = "assets"
+# Launcher icon: vector adaptive icon on Android 8+, PNGs below (see make_icons.sh).
+resources = "assets/android-res"
+
+[package.metadata.android.application]
+icon = "@mipmap/ic_launcher"
+label = "Holodeck"
 
 [package.metadata.android.signing.release]
 path = "/var/home/maxfridbe/.android/debug.keystore"
