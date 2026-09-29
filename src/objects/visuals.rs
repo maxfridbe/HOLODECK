@@ -70,6 +70,32 @@ fn triangle_mesh(vertices: &[Vertex], textured: bool) -> Mesh {
         .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
 }
 
+/// The triangle edges of level-of-detail 0 as a line mesh, used for
+/// wireframe mode (which therefore needs no special GPU support).
+pub fn build_wireframe(data: &ModelData) -> Mesh {
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut colors: Vec<[f32; 4]> = Vec::new();
+    for mesh in data.meshes() {
+        for triangle in mesh.vertices.chunks_exact(3) {
+            let textured = triangle[0].texture_binding > 0 && data.texture(triangle[0].texture_binding).is_some();
+            for (a, b) in [(0, 1), (1, 2), (2, 0)] {
+                for vertex in [&triangle[a], &triangle[b]] {
+                    positions.push(vertex.position.to_array());
+                    colors.push(if textured {
+                        [1.0; 4]
+                    } else {
+                        let [r, g, b, a] = vertex.color;
+                        Color::srgba(r, g, b, a).to_linear().to_f32_array()
+                    });
+                }
+            }
+        }
+    }
+    Mesh::new(PrimitiveTopology::LineList, RenderAssetUsages::default())
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+}
+
 /// Builds a texture with a full mip chain, sampled like the original
 /// (`GL_NEAREST_MIPMAP_LINEAR`, repeating).
 pub fn build_texture(texture: &TextureData) -> Image {
@@ -176,6 +202,15 @@ mod tests {
         // sRGB 0.5 is roughly 0.214 in linear space.
         assert!((colors[0][0] - 0.214).abs() < 0.01, "{}", colors[0][0]);
         assert_eq!(colors[0][3], 1.0);
+    }
+
+    #[test]
+    fn wireframe_has_three_edges_per_triangle() {
+        let data = bundled("cone");
+        let triangles: usize = data.meshes().iter().map(|m| m.vertices.len() / 3).sum();
+        let mesh = build_wireframe(&data);
+        assert_eq!(mesh.count_vertices(), triangles * 6);
+        assert_eq!(mesh.primitive_topology(), PrimitiveTopology::LineList);
     }
 
     #[test]

@@ -9,9 +9,10 @@
 # and from any existing v<YY.MMDD>.## git tags, so a version is never reused.
 #
 # The padded form goes in version.txt, git tags, release names and the Android
-# versionName. Cargo insists on semver, which forbids leading zeros, so
-# Cargo.toml gets the same numbers unpadded (26.0929.03 -> 26.929.3). The
-# Android versionCode is YYMMDDNN, which grows with every release.
+# versionName. Cargo insists on semver (no leading zeros) and cargo-apk packs
+# each of major.minor.patch into one byte, so Cargo.toml carries the date as
+# YY.M.D with the release number as build metadata: 26.0929.03 -> 26.9.29+03.
+# The Gradle versionCode is YYMMDDNN, which grows with every release.
 set -e
 cd "$(dirname "$0")"
 
@@ -42,7 +43,7 @@ if [[ "$1" == "--set" ]]; then
 fi
 
 IFS=. read -r YY MMDD NN <<< "$NEXT"
-CARGO="$((10#$YY)).$((10#$MMDD)).$((10#$NN))"
+CARGO="$((10#$YY)).$((10#${MMDD:0:2})).$((10#${MMDD:2:2}))+$NN"
 CODE="${YY}${MMDD}${NN}"
 CODE=$((10#$CODE))
 

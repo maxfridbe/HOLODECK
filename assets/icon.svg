@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Holodeck">
+  <title>Holodeck</title>
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="46%" r="60%">
+      <stop offset="0" stop-color="#16213f"/>
+      <stop offset="1" stop-color="#05070f"/>
+    </radialGradient>
+    <radialGradient id="orb" cx="38%" cy="34%" r="70%">
+      <stop offset="0" stop-color="#e8fbff"/>
+      <stop offset="0.45" stop-color="#4cc9f0"/>
+      <stop offset="1" stop-color="#1d4e89"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="24" fill="url(#glow)"/>
+  <!-- Holographic room: floor and back wall grid in perspective -->
+  <g fill="none" stroke="#ffd60a" stroke-linecap="round" stroke-width="2.4">
+    <path d="M22 44 H106 V98 H22 Z" opacity=".9"/>
+    <path d="M22 44 L6 22 M106 44 L122 22 M22 98 L6 122 M106 98 L122 122" opacity=".55"/>
+    <path d="M6 22 H122 V122 H6 Z" opacity=".35"/>
+    <path d="M50 44 V98 M78 44 V98 M22 71 H106" opacity=".7"/>
+    <path d="M36 98 L27 122 M64 98 V122 M92 98 L101 122" opacity=".45"/>
+  </g>
+  <!-- Object floating in the room, with its selection handle -->
+  <circle cx="64" cy="66" r="17" fill="url(#orb)"/>
+  <ellipse cx="64" cy="66" rx="17" ry="5.5" fill="none" stroke="#e8fbff" stroke-width="1.4" opacity=".55"/>
+  <path d="M64 66 V33" stroke="#39ff88" stroke-width="3" stroke-linecap="round"/>
+  <path d="M64 24 L71 36 H57 Z" fill="#39ff88"/>
+  <path d="M64 66 H101" stroke="#ff4d4d" stroke-width="3" stroke-linecap="round"/>
+  <path d="M110 66 L98 59 V73 Z" fill="#ff4d4d"/>
+</svg>

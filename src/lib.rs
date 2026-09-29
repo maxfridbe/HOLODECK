@@ -11,6 +11,7 @@ use bevy::prelude::*;
 use bevy::render::view::RenderLayers;
 use bevy_embedded_assets::{EmbeddedAssetPlugin, PluginMode};
 
+pub mod axis;
 pub mod camera;
 pub mod data;
 pub mod devtools;
@@ -27,6 +28,7 @@ pub mod physics;
 pub mod settings;
 pub mod ui3d;
 pub mod view;
+pub mod wireframe;
 
 use camera::CameraManager;
 use objects::manip::ManipulatorPlugin;
@@ -67,6 +69,8 @@ pub fn run_game() {
             input::InputPlugin,
             hud::HudPlugin,
             effects::EffectsPlugin,
+            axis::AxisPlugin,
+            wireframe::WireframePlugin,
             devtools::DevtoolsPlugin,
         ))
         .add_systems(Startup, (spawn_main_camera, setup_world.after(spawn_main_camera)))

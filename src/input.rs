@@ -1,8 +1,8 @@
 //! Keyboard and mouse control of the camera and world.
 //!
 //! * `W A S D` fly; speed ramps up while keys are held.
-//! * Hold `Left Ctrl` and move the mouse to look around (the pointer is
-//!   captured while you do).
+//! * Drag with the left mouse button on empty space to look around (works
+//!   in the browser and with touch), or hold `Ctrl` and move the mouse.
 //! * Mouse wheel changes the field of view (or zooms orthographic views).
 //! * `Space` toggles the menu, `G` the grid, `Q` asks to quit.
 
@@ -80,6 +80,9 @@ fn hotkeys(
 }
 
 /// Captures the pointer while looking.
+/// Captures the pointer while Ctrl-looking on desktop. Browsers only allow
+/// pointer lock inside a user gesture, so the web build never locks and
+/// looks from cursor movement instead.
 fn look_mode(
     settings: Res<Settings>,
     ui: Res<UiState>,
@@ -87,6 +90,9 @@ fn look_mode(
     keys: Res<ButtonInput<KeyCode>>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
 ) {
+    if cfg!(target_arch = "wasm32") {
+        return;
+    }
     let Ok(mut window) = windows.get_single_mut() else { return };
     let look = looking(&settings, &ui, &manip, &keys);
     let (grab, visible) = if look { (CursorGrabMode::Locked, false) } else { (CursorGrabMode::None, true) };
@@ -98,20 +104,68 @@ fn look_mode(
     }
 }
 
+/// A left-button drag that started on empty space (not on the UI or a
+/// manipulator handle) turns the camera. Moves under a few pixels still count
+/// as a click, so selecting objects is unaffected.
+#[derive(Default)]
+struct LookDrag {
+    armed: bool,
+    started: bool,
+    last: Option<Vec2>,
+    travelled: f32,
+}
+
+const DRAG_THRESHOLD: f32 = 4.0;
+
+#[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    touches: Res<Touches>,
     settings: Res<Settings>,
     ui: Res<UiState>,
     manip: Res<Manipulator>,
     keys: Res<ButtonInput<KeyCode>>,
     view: Res<ViewPort>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    mut drag: Local<LookDrag>,
     mut cameras: ResMut<CameraManager>,
 ) {
-    if !looking(&settings, &ui, &manip, &keys) {
-        return;
+    let cursor = windows.get_single().ok().and_then(Window::cursor_position);
+    let cursor_delta = match (cursor, drag.last) {
+        (Some(now), Some(before)) => now - before,
+        _ => Vec2::ZERO,
+    };
+    drag.last = cursor;
+
+    if mouse.just_pressed(MouseButton::Left) {
+        *drag = LookDrag { armed: !ui.active && !ui.pointer_over_ui, started: false, last: cursor, travelled: 0.0 };
     }
-    if let Some(rig) = cameras.cameras.get_mut(view.camera) {
-        rig.look(motion.delta.x, motion.delta.y);
+    if !mouse.pressed(MouseButton::Left) || manip.is_dragging() {
+        drag.armed = false;
+        drag.started = false;
+    }
+
+    let mut delta = Vec2::ZERO;
+    if looking(&settings, &ui, &manip, &keys) {
+        // Locked pointer (desktop) reports raw motion; unlocked (web) moves the cursor.
+        delta = if motion.delta != Vec2::ZERO { motion.delta } else { cursor_delta };
+    } else if drag.armed {
+        drag.travelled += cursor_delta.length();
+        drag.started |= drag.travelled > DRAG_THRESHOLD;
+        if drag.started {
+            delta = cursor_delta;
+        }
+    }
+    if !ui.active {
+        for touch in touches.iter() {
+            delta += touch.delta();
+        }
+    }
+    if delta != Vec2::ZERO {
+        if let Some(rig) = cameras.cameras.get_mut(view.camera) {
+            rig.look(delta.x, delta.y);
+        }
     }
 }
 

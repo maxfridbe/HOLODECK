@@ -52,6 +52,7 @@ else
 fi
 
 sed "s/{{GAME_NAME}}/$GAME_NAME/g" web/index.html > "$DIST_DIR/index.html"
+cp web/favicon.svg "$DIST_DIR/favicon.svg"
 
 echo ""
 echo "Done! The web build is ready in $DIST_DIR"

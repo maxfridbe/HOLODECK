@@ -126,6 +126,7 @@ jobs:
           mv "dist/${GAME}_bg.wasm.opt" "dist/${GAME}_bg.wasm"
           ls -lh "dist/${GAME}_bg.wasm"
           sed "s/{{GAME_NAME}}/$GAME/g" web/index.html > dist/index.html
+          cp web/favicon.svg dist/favicon.svg
           (cd dist && zip -r "../$GAME-web-v$V.zip" .)
       - uses: actions/upload-artifact@v4
         with:
@@ -210,6 +211,8 @@ jobs:
             # bitten before ("install succeeded", binary not found later).
             CARGO_APK="$HOME/.cargo/bin/cargo-apk"
             "$CARGO_APK" apk version
+            # The APK's version comes from Cargo.toml, so stamp this release in.
+            ./increment_version.sh --set '${{ needs.meta.outputs.version }}'
             GAME='${{ needs.meta.outputs.game }}'
             V='${{ needs.meta.outputs.version }}'
             "$CARGO_APK" apk build --release --lib --target aarch64-linux-android

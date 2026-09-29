@@ -1,3 +1,5 @@
+<p align="center"><img src="web/favicon.svg" width="96" alt="Holodeck icon"></p>
+
 # Holodeck
 
 **[▶ Play it in your browser](https://maxfridbe.github.io/HOLODECK/)** — built from `main` and deployed to GitHub Pages by the release workflow.
@@ -16,7 +18,8 @@ Start with **Space** to open the menu, then **Scene → Open** and pick `demo.wo
 | Input | Action |
 |-------|--------|
 | **W A S D** | Fly (speed ramps up while held) |
-| **Ctrl + mouse** | Look around (the pointer is captured while Ctrl is held) |
+| Left-drag on empty space | Look around (also one-finger drag on touch screens) |
+| **Ctrl + mouse** | Look around without clicking (desktop captures the pointer) |
 | Mouse wheel | Field of view (zoom in orthographic views) |
 | Left-click | Select the object under the pointer; drag a handle to use it |
 | Right-click | Context menu for what is selected (Translate / Scale / Rotate / Properties / Modify Forces / Duplicate / Deselect / Unload) |
@@ -56,7 +59,7 @@ Versions are `YY.MMDD.##` — for example `26.0929.03` is the third release of 2
 3. publishes a GitHub Release `v<version>` with all artifacts and deploys the web build to GitHub Pages,
 4. commits the version back to `version.txt`, `Cargo.toml` and the Gradle files (`[skip ci]`).
 
-`./increment_version.sh` does the same locally; `./increment_version.sh --print` shows the next version. Cargo requires semver, which forbids leading zeros, so `Cargo.toml` carries the same numbers unpadded (`26.0929.03` → `26.929.3`); tags, release names and `version.txt` use the padded form.
+`./increment_version.sh` does the same locally; `./increment_version.sh --print` shows the next version. Cargo requires semver (no leading zeros) and cargo-apk stores each version part in a byte, so `Cargo.toml` carries the date as `YY.M.D` with the release number as build metadata (`26.0929.03` → `26.9.29+03`); tags, release names and `version.txt` use the padded form.
 
 **One-time setup:** enable GitHub Pages under *Settings → Pages → Source: GitHub Actions* so the first deploy can publish the playable build.
 
