@@ -70,7 +70,24 @@ impl Plugin for Ui3dPlugin {
             .add_plugins((widgets::WidgetsPlugin, menu::MenuPlugin))
             .add_systems(Startup, menu::spawn_main_menu.after(crate::spawn_main_camera))
             .add_systems(Update, actions::run_actions)
+            .add_systems(PreUpdate, scale_ui)
             .add_systems(PostUpdate, update_ui_state);
+    }
+}
+
+/// The UI is laid out for a 1280x720 window and scaled to fit the actual
+/// one, so it stays the same proportion of the screen at any resolution.
+pub const REFERENCE_SIZE: Vec2 = Vec2::new(1280.0, 720.0);
+
+pub fn ui_scale_for(window: Vec2) -> f32 {
+    (window / REFERENCE_SIZE).min_element().clamp(0.5, 4.0)
+}
+
+fn scale_ui(windows: Query<&Window, With<bevy::window::PrimaryWindow>>, mut scale: ResMut<UiScale>) {
+    let Ok(window) = windows.get_single() else { return };
+    let wanted = ui_scale_for(Vec2::new(window.width(), window.height()));
+    if (scale.0 - wanted).abs() > 1e-3 {
+        scale.0 = wanted;
     }
 }
 
@@ -90,4 +107,18 @@ fn update_ui_state(
 /// The camera entity UI nodes attach to.
 pub fn ui_camera(query: &Query<Entity, With<MainCamera>>) -> Option<Entity> {
     query.get_single().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ui_scales_with_the_window() {
+        assert_eq!(ui_scale_for(REFERENCE_SIZE), 1.0);
+        assert_eq!(ui_scale_for(Vec2::new(3840.0, 2160.0)), 3.0);
+        // Limited by the tighter dimension, so everything still fits.
+        assert_eq!(ui_scale_for(Vec2::new(2560.0, 720.0)), 1.0);
+        assert_eq!(ui_scale_for(Vec2::new(200.0, 100.0)), 0.5);
+    }
 }

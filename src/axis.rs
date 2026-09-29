@@ -80,11 +80,12 @@ fn spawn(mut commands: Commands, mut store: ResMut<GizmoConfigStore>, main: Quer
 /// Keeps the indicator in the bottom-left corner, looking the same way as the main camera.
 fn place_camera(
     windows: Query<&Window, With<PrimaryWindow>>,
+    ui_scale: Res<UiScale>,
     main: Query<&Transform, (With<MainCamera>, Without<AxisCamera>)>,
     mut axis: Query<(&mut Camera, &mut Transform), With<AxisCamera>>,
 ) {
     let (Ok(window), Ok(main), Ok((mut camera, mut transform))) = (windows.get_single(), main.get_single(), axis.get_single_mut()) else { return };
-    let scale = window.scale_factor();
+    let scale = window.scale_factor() * ui_scale.0;
     let size = (SIZE * scale) as u32;
     let position = UVec2::new((MARGIN * scale) as u32, window.physical_height().saturating_sub(size + (MARGIN * scale) as u32));
     if window.physical_width() < size || window.physical_height() < size {
@@ -105,16 +106,19 @@ fn draw(mut gizmos: Gizmos<AxisGizmos>) {
 
 fn place_labels(
     windows: Query<&Window, With<PrimaryWindow>>,
+    ui_scale: Res<UiScale>,
     axis: Query<(&Camera, &Transform), With<AxisCamera>>,
     mut labels: Query<(&AxisLabel, &mut Node, &mut Visibility)>,
 ) {
     let (Ok(window), Ok((camera, transform))) = (windows.get_single(), axis.get_single()) else { return };
-    let origin = Vec2::new(MARGIN, window.height() - SIZE - MARGIN);
+    // In UI units, like the label nodes.
+    let origin = Vec2::new(MARGIN, window.height() / ui_scale.0 - SIZE - MARGIN);
     let global = GlobalTransform::from(*transform);
     for (label, mut node, mut visibility) in &mut labels {
         let (direction, ..) = axes()[label.0];
         match camera.world_to_viewport(&global, direction * REACH * 1.05) {
             Ok(p) if camera.is_active => {
+                let p = p / ui_scale.0;
                 node.left = Val::Px(origin.x + p.x - 4.0);
                 node.top = Val::Px(origin.y + p.y - 8.0);
                 *visibility = Visibility::Inherited;

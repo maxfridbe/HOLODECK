@@ -579,10 +579,11 @@ pub fn update_quick_cameras(cameras: Res<CameraManager>, view: Res<ViewPort>, mu
     }
 }
 
-/// Right-click: open a context menu that matches the selection.
+/// Right-click (or long press): open a context menu that matches the selection.
 #[allow(clippy::too_many_arguments)]
 pub fn context_menu_on_right_click(
-    mouse: Res<ButtonInput<MouseButton>>,
+    pointer: Res<crate::touch::Pointer>,
+    scale: Res<UiScale>,
     ui: Res<UiState>,
     selection: Res<Selection>,
     cameras: Res<CameraManager>,
@@ -591,10 +592,10 @@ pub fn context_menu_on_right_click(
     existing: Query<(Entity, &MenuBar)>,
     mut commands: Commands,
 ) {
-    if !mouse.just_pressed(MouseButton::Right) || ui.active {
+    if !pointer.secondary || ui.active || pointer.pressed_on_ui {
         return;
     }
-    let (Some(pointer), Ok(camera)) = (menu::cursor_position(&windows), camera.get_single()) else { return };
+    let (Some(pointer), Ok(camera)) = (pointer.position.map(|p| p / scale.0), camera.get_single()) else { return };
     if menu::in_menu_tab_area(pointer) {
         return;
     }
@@ -611,7 +612,7 @@ pub fn context_menu_on_right_click(
         None => ContextTarget::Nothing,
     };
     let headers = menu::context_menu(target);
-    let at = windows.get_single().map_or(pointer, |w| menu::keep_on_screen(pointer, &headers, Vec2::new(w.width(), w.height())));
+    let at = windows.get_single().map_or(pointer, |w| menu::keep_on_screen(pointer, &headers, Vec2::new(w.width(), w.height()) / scale.0));
     menu::spawn_context_menu(&mut commands, camera, at, headers);
 }
 

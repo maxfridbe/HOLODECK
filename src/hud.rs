@@ -64,7 +64,7 @@ fn spawn(mut commands: Commands, camera: Query<Entity, With<MainCamera>>) {
     ));
     commands.spawn((
         HintText,
-        Text::new("WASD fly   drag / Ctrl+mouse look   wheel zoom   Space menu   right-click context menu   left-click select   G grid   Q quit"),
+        Text::new("WASD fly   drag / Ctrl+mouse look   wheel zoom   Space menu   right-click / long-press context menu   click / tap select   G grid   Q quit"),
         TextFont { font_size: 13.0, ..default() },
         TextColor(Color::srgba(0.75, 0.75, 0.75, 0.8)),
         Node { position_type: PositionType::Absolute, left: Val::Px(12.0), bottom: Val::Px(8.0), ..default() },

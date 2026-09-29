@@ -48,6 +48,7 @@ fn place_labels(
     mut commands: Commands,
     mut labels: ResMut<WorldLabels>,
     camera: Query<(&Camera, &Transform), With<MainCamera>>,
+    scale: Res<UiScale>,
     mut nodes: Query<(Entity, &mut Node, &mut Text, &mut TextColor, &mut Visibility), With<LabelNode>>,
     ui_camera: Query<Entity, With<MainCamera>>,
 ) {
@@ -58,7 +59,7 @@ fn place_labels(
             let global = GlobalTransform::from(*transform);
             queued
                 .iter()
-                .filter_map(|l| camera.world_to_viewport(&global, l.position).ok().map(|p| (p, l)))
+                .filter_map(|l| camera.world_to_viewport(&global, l.position).ok().map(|p| (p / scale.0, l)))
                 .collect()
         })
         .unwrap_or_default();

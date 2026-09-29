@@ -1,12 +1,12 @@
-//! Selecting objects and manipulator handles with the mouse.
+//! Selecting objects and manipulator handles with the mouse or a finger.
 
 use bevy::prelude::*;
-use bevy::window::PrimaryWindow;
 
 use super::format::ModelData;
 use super::manip::{Layout, Manipulator};
 use super::model::ModelGeometry;
 use crate::settings::{Settings, SystemState};
+use crate::touch::Pointer;
 use crate::ui3d::UiState;
 use crate::view::MainCamera;
 
@@ -82,48 +82,57 @@ fn ray_hits_box(o: Vec3, d: Vec3, min: Vec3, max: Vec3) -> bool {
     far >= near.max(0.0) || d.abs().min_element() == 0.0 && far >= 0.0
 }
 
-/// The world ray under the cursor.
-fn cursor_ray(window: &Window, camera: &Camera, transform: &Transform) -> Option<Ray3d> {
-    let cursor = window.cursor_position()?;
-    camera.viewport_to_world(&GlobalTransform::from(*transform), cursor).ok()
+/// The world ray through a window position of the main camera.
+pub fn ray_at(camera: &Camera, transform: &Transform, position: Vec2) -> Option<(Vec3, Vec3)> {
+    let ray = camera.viewport_to_world(&GlobalTransform::from(*transform), position).ok()?;
+    Some((ray.origin, *ray.direction))
 }
 
-/// The cursor ray of the main camera (shared with manipulator dragging).
-pub fn main_ray(window: &Window, camera: &Camera, transform: &Transform) -> Option<(Vec3, Vec3)> {
-    cursor_ray(window, camera, transform).map(|r| (r.origin, *r.direction))
-}
-
-/// Left click: grab a manipulator handle if one is under the cursor,
-/// otherwise select the frontmost object (or nothing).
+/// Pressing on a manipulator handle grabs it straight away; a click or tap
+/// (press and release without dragging) selects the frontmost object, or
+/// nothing. Dragging on empty space looks around instead (see `input`).
 #[allow(clippy::too_many_arguments)]
 pub fn select_on_click(
-    mouse: Res<ButtonInput<MouseButton>>,
+    pointer: Res<Pointer>,
     settings: Res<Settings>,
     ui: Res<UiState>,
-    windows: Query<&Window, With<PrimaryWindow>>,
     camera: Query<(&Camera, &Transform), With<MainCamera>>,
     models: Query<(Entity, &Transform, &ModelGeometry, &Visibility), Without<MainCamera>>,
     mut selection: ResMut<Selection>,
     mut manip: ResMut<Manipulator>,
+    mut press_counts: Local<bool>,
 ) {
-    let clicked = mouse.just_pressed(MouseButton::Left) && !mouse.just_pressed(MouseButton::Right) && !mouse.just_pressed(MouseButton::Middle);
-    if !clicked || ui.active || ui.pointer_over_ui || settings.system == SystemState::CameraControl {
+    if settings.system == SystemState::CameraControl {
         return;
     }
-    let (Ok(window), Ok((camera, camera_transform))) = (windows.get_single(), camera.get_single()) else { return };
-    let Some((origin, dir)) = main_ray(window, camera, camera_transform) else { return };
+    if pointer.just_pressed {
+        // Presses that start on the UI never reach the world.
+        *press_counts = !ui.active && !pointer.pressed_on_ui;
+    }
+    if !*press_counts {
+        return;
+    }
+    let (Ok((camera, camera_transform)), Some(position)) = (camera.get_single(), pointer.position) else { return };
+    let Some((origin, dir)) = ray_at(camera, camera_transform, position) else { return };
 
-    // Handles win over objects regardless of depth.
-    if let (Some(kind), Some(entity)) = (manip.kind, selection.entity) {
-        if let Ok((_, transform, geometry, _)) = models.get(entity) {
-            let layout = Layout::compute(kind, &geometry.data.bounding_box, transform, camera_transform.translation);
-            if let Some((handle, _)) = super::manip::pick_handle(kind, &layout, origin, dir) {
-                selection.on_handle = true;
-                manip.begin_drag(handle, &layout, origin, dir);
-                return;
+    if pointer.just_pressed {
+        // Handles win over objects regardless of depth.
+        if let (Some(kind), Some(entity)) = (manip.kind, selection.entity) {
+            if let Ok((_, transform, geometry, _)) = models.get(entity) {
+                let layout = Layout::compute(kind, &geometry.data.bounding_box, transform, camera_transform.translation);
+                if let Some((handle, _)) = super::manip::pick_handle(kind, &layout, origin, dir) {
+                    selection.on_handle = true;
+                    manip.begin_drag(handle, &layout, origin, dir);
+                    *press_counts = false;
+                }
             }
         }
+        return;
     }
+    if !pointer.tapped() {
+        return;
+    }
+    *press_counts = false;
 
     let nearest = models
         .iter()
@@ -143,10 +152,9 @@ pub fn select_on_click(
     }
 }
 
-/// Continues or ends a handle drag while the left button is held.
+/// Continues or ends a handle drag while the pointer is held.
 pub fn drag_handle(
-    mouse: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    pointer: Res<Pointer>,
     camera: Query<(&Camera, &Transform), With<MainCamera>>,
     selection: Res<Selection>,
     mut manip: ResMut<Manipulator>,
@@ -155,12 +163,12 @@ pub fn drag_handle(
     if !manip.is_dragging() {
         return;
     }
-    if !mouse.pressed(MouseButton::Left) {
+    if !pointer.pressed {
         manip.end_drag();
         return;
     }
-    let (Ok(window), Ok((camera, camera_transform))) = (windows.get_single(), camera.get_single()) else { return };
-    let (Some((origin, dir)), Some(entity)) = (main_ray(window, camera, camera_transform), selection.entity) else { return };
+    let (Ok((camera, camera_transform)), Some(position)) = (camera.get_single(), pointer.position) else { return };
+    let (Some((origin, dir)), Some(entity)) = (ray_at(camera, camera_transform, position), selection.entity) else { return };
     if let Ok((mut transform, geometry)) = targets.get_mut(entity) {
         manip.drag_to(&mut transform, &geometry.data.bounding_box, origin, dir);
     } else {

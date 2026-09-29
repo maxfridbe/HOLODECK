@@ -6,6 +6,13 @@
 
 Holodeck is a 3D scene editor / simulator: you float inside a holographic grid, load models and scenes, select objects, and move, scale and rotate them with on-screen handles. It is a Rust/[Bevy](https://bevyengine.org) port of the original C++/OpenGL project (VRUPL, 2004–05); the original sources are kept in [`cpp/`](cpp/) for reference. The build system, packaging and CI come from [GameBase](https://github.com/maxfridbe/GameBase), so Holodeck ships to **Linux, Windows, macOS (Apple Silicon), Android and the browser** from one crate.
 
+![A loaded blueEye.3dbin model](docs/screenshots/blueeye-loaded.png)
+
+| | |
+|---|---|
+| ![fixed.world with translate handles](docs/screenshots/fixed-scene.png) | ![vrupl.3dbin selected with rotate rings](docs/screenshots/vrupl-rotate.png) |
+| ![Long-press context menu on a touch screen](docs/screenshots/touch-context-menu.png) | ![Dragging a handle with a finger](docs/screenshots/touch-translate.png) |
+
 ## Playing
 
 Start with **Space** to open the menu, then **Scene → Open** and pick `demo.world` (or `fixed.world` for objects you can grab). Models and scenes bundled with the game:
@@ -21,12 +28,25 @@ Start with **Space** to open the menu, then **Scene → Open** and pick `demo.wo
 | Left-drag on empty space | Look around (also one-finger drag on touch screens) |
 | **Ctrl + mouse** | Look around without clicking (desktop captures the pointer) |
 | Mouse wheel | Field of view (zoom in orthographic views) |
-| Left-click | Select the object under the pointer; drag a handle to use it |
+| Left-click | Select the object under the pointer (click without dragging); drag a handle to use it |
 | Right-click | Context menu for what is selected (Translate / Scale / Rotate / Properties / Modify Forces / Duplicate / Deselect / Unload) |
 | **Space** | Show / hide the menu bar |
 | **G** | Toggle the holographic grid |
 | **Q** | Quit (asks first) |
 | Enter / Esc | Accept / cancel the front dialog. Tab moves between fields |
+
+**Touch screens** (phones, tablets, the browser on a touch device) — the same on-screen controls as DarkMessenger appear as soon as you touch the screen:
+
+| Touch | Action |
+|-------|--------|
+| Stick (bottom-left) | Fly; push further to go faster |
+| Drag anywhere else | Look around (a second finger looks while the first does something else) |
+| Tap | Select, press buttons and menus, pick list entries (double-tap to open a file) |
+| Long press | Context menu (the right-click menu) |
+| Drag a handle | Move / scale / rotate the selected object |
+| **MENU** / **GRID** buttons | Show the menu bar / toggle the grid |
+
+The controls hide again when a key is pressed. The whole UI scales with the window (laid out for 1280×720), so it stays the same size relative to the screen on a phone or a 4K monitor.
 
 **Menus** — *File* (Connect, Exit) · *Edit* (Duplicate) · *Settings* (Grid colours) · *View* (3d, Front, Back, Left, Right, Top, Bottom, HoloGrid, Wireframe, Inner Grid) · *Scene* (New, Save, Open, Add World Force) · *Model* (Load, Unload).
 

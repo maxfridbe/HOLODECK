@@ -9,6 +9,8 @@
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::{AccumulatedMouseMotion, MouseWheel};
+
+use crate::touch::{Pointer, TAP_SLOP, TouchInput};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 
@@ -104,63 +106,38 @@ fn look_mode(
     }
 }
 
-/// A left-button drag that started on empty space (not on the UI or a
-/// manipulator handle) turns the camera. Moves under a few pixels still count
-/// as a click, so selecting objects is unaffected.
-#[derive(Default)]
-struct LookDrag {
-    armed: bool,
-    started: bool,
-    last: Option<Vec2>,
-    travelled: f32,
-}
-
-const DRAG_THRESHOLD: f32 = 4.0;
-
+/// A drag that started on empty space (not on the UI or a manipulator
+/// handle) turns the camera. Moves under a few pixels still count as a click
+/// or tap, so selecting objects is unaffected.
 #[allow(clippy::too_many_arguments)]
 fn mouse_look(
     motion: Res<AccumulatedMouseMotion>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    touches: Res<Touches>,
+    pointer: Res<Pointer>,
+    touch: Res<TouchInput>,
     settings: Res<Settings>,
     ui: Res<UiState>,
     manip: Res<Manipulator>,
     keys: Res<ButtonInput<KeyCode>>,
     view: Res<ViewPort>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    mut drag: Local<LookDrag>,
+    mut armed: Local<bool>,
     mut cameras: ResMut<CameraManager>,
 ) {
-    let cursor = windows.get_single().ok().and_then(Window::cursor_position);
-    let cursor_delta = match (cursor, drag.last) {
-        (Some(now), Some(before)) => now - before,
-        _ => Vec2::ZERO,
-    };
-    drag.last = cursor;
-
-    if mouse.just_pressed(MouseButton::Left) {
-        *drag = LookDrag { armed: !ui.active && !ui.pointer_over_ui, started: false, last: cursor, travelled: 0.0 };
+    if pointer.just_pressed {
+        *armed = !ui.active && !pointer.pressed_on_ui;
     }
-    if !mouse.pressed(MouseButton::Left) || manip.is_dragging() {
-        drag.armed = false;
-        drag.started = false;
+    if !pointer.pressed || manip.is_dragging() {
+        *armed = false;
     }
 
     let mut delta = Vec2::ZERO;
     if looking(&settings, &ui, &manip, &keys) {
         // Locked pointer (desktop) reports raw motion; unlocked (web) moves the cursor.
-        delta = if motion.delta != Vec2::ZERO { motion.delta } else { cursor_delta };
-    } else if drag.armed {
-        drag.travelled += cursor_delta.length();
-        drag.started |= drag.travelled > DRAG_THRESHOLD;
-        if drag.started {
-            delta = cursor_delta;
-        }
+        delta = if motion.delta != Vec2::ZERO { motion.delta } else { pointer.delta };
+    } else if *armed && pointer.travel > TAP_SLOP {
+        delta = pointer.delta;
     }
     if !ui.active {
-        for touch in touches.iter() {
-            delta += touch.delta();
-        }
+        delta += touch.look;
     }
     if delta != Vec2::ZERO {
         if let Some(rig) = cameras.cameras.get_mut(view.camera) {
@@ -182,62 +159,48 @@ pub struct FlyInput {
     pub back: bool,
     pub left: bool,
     pub right: bool,
+    /// Analog stick: x right, y forward, length up to 1.
+    pub stick: Vec2,
 }
 
 impl FlyInput {
     fn any(&self) -> bool {
-        self.forward || self.back || self.left || self.right
+        self.forward || self.back || self.left || self.right || self.stick.length() > 0.05
+    }
+
+    /// Forward/right amounts from keys and stick, each in -1..=1.
+    fn axes(&self) -> Vec2 {
+        let keys = Vec2::new(f32::from(self.right) - f32::from(self.left), f32::from(self.forward) - f32::from(self.back));
+        (keys + self.stick).clamp(Vec2::NEG_ONE, Vec2::ONE)
     }
 }
 
 /// Port of the original `HandleKeys`: `mov` is the (unit) view direction.
 pub fn fly_step(input: &FlyInput, view: &ViewPort, settings: &mut Settings, mov: Vec3, up: Vec3, dt: f32) -> Vec3 {
+    let axes = input.axes();
+    let strafe_left = Vec3::new(mov.z, 0.0, -mov.x);
     let mut force = Vec3::ZERO;
     if view.is_perspective() {
         if !input.any() {
             settings.current_speed = 0.0;
+            return Vec3::ZERO;
         }
-        let ramp = |settings: &mut Settings| {
-            settings.current_speed = (settings.current_speed + settings.accel_speed * dt).min(settings.max_player_speed);
-        };
-        if input.forward {
-            ramp(settings);
-            force += mov;
-        }
-        if input.back {
-            ramp(settings);
-            force -= mov;
-        }
-        if input.left {
-            ramp(settings);
-            force += Vec3::new(mov.z, 0.0, -mov.x);
-        }
-        if input.right {
-            ramp(settings);
-            force += Vec3::new(-mov.z, 0.0, mov.x);
-        }
-        force = force.normalize_or_zero() * settings.current_speed;
+        settings.current_speed = (settings.current_speed + settings.accel_speed * dt).min(settings.max_player_speed);
+        force = mov * axes.y - strafe_left * axes.x;
+        // Full speed for keys (normalised) or a fully pushed stick.
+        force = force.normalize_or_zero() * axes.length().min(1.0) * settings.current_speed;
     } else {
         let pan = view.zoom_percent(10.0);
         let flat = matches!(view.view_type, ViewType::Top | ViewType::Bottom);
-        if input.forward {
-            force += up * pan;
-        }
-        if input.back {
-            force -= up * pan;
-        }
-        if input.left {
-            force += if flat { Vec3::new(0.0, 0.0, -pan) } else { Vec3::new(mov.z * pan, 0.0, -mov.x * pan) };
-        }
-        if input.right {
-            force += if flat { Vec3::new(0.0, 0.0, pan) } else { Vec3::new(-mov.z * pan, 0.0, mov.x * pan) };
-        }
+        force += up * pan * axes.y;
+        force -= if flat { Vec3::new(0.0, 0.0, -pan) } else { strafe_left * pan } * axes.x;
     }
     force * dt * 8.0
 }
 
 fn fly_camera(
     time: Res<Time>,
+    touch: Res<TouchInput>,
     keys: Res<ButtonInput<KeyCode>>,
     mut settings: ResMut<Settings>,
     ui: Res<UiState>,
@@ -256,6 +219,7 @@ fn fly_camera(
         back: keys.pressed(KeyCode::KeyS),
         left: keys.pressed(KeyCode::KeyA),
         right: keys.pressed(KeyCode::KeyD),
+        stick: touch.stick,
     };
     let step = fly_step(&input, &view, &mut settings, view.view_direction(rig), rig.up, time.delta_secs());
     rig.pos += step;
@@ -265,8 +229,8 @@ fn fly_camera(
 mod tests {
     use super::*;
 
-    const FORWARD: FlyInput = FlyInput { forward: true, back: false, left: false, right: false };
-    const NONE: FlyInput = FlyInput { forward: false, back: false, left: false, right: false };
+    const FORWARD: FlyInput = FlyInput { forward: true, back: false, left: false, right: false, stick: Vec2::ZERO };
+    const NONE: FlyInput = FlyInput { forward: false, back: false, left: false, right: false, stick: Vec2::ZERO };
 
     #[test]
     fn flying_forward_accelerates_along_the_view_direction() {
@@ -297,7 +261,7 @@ mod tests {
     fn strafing_left_goes_to_the_left_of_the_view() {
         let view = ViewPort::default();
         let mut settings = Settings::default();
-        let left = FlyInput { forward: false, back: false, left: true, right: false };
+        let left = FlyInput { forward: false, back: false, left: true, right: false, stick: Vec2::ZERO };
         // Facing +Z, the viewer's left is +X.
         let step = fly_step(&left, &view, &mut settings, Vec3::Z, Vec3::Y, 0.1);
         assert!(step.x > 0.0 && step.z.abs() < 1e-6);
@@ -306,7 +270,7 @@ mod tests {
     #[test]
     fn diagonal_movement_is_not_faster_than_straight() {
         let view = ViewPort::default();
-        let both = FlyInput { forward: true, back: false, left: true, right: false };
+        let both = FlyInput { forward: true, back: false, left: true, right: false, stick: Vec2::ZERO };
         let mut a = Settings { current_speed: 5.0, ..default() };
         let mut b = Settings { current_speed: 5.0, ..default() };
         let straight = fly_step(&FORWARD, &view, &mut a, Vec3::Z, Vec3::Y, 0.0).length();
@@ -316,6 +280,17 @@ mod tests {
         let d = fly_step(&both, &view, &mut b, Vec3::Z, Vec3::Y, 0.1).length();
         // Both ramp; compare per-unit-speed magnitudes.
         assert!((s / a.current_speed - d / b.current_speed).abs() < 1e-5);
+    }
+
+    #[test]
+    fn half_pushed_stick_flies_at_half_speed() {
+        let view = ViewPort::default();
+        let half = FlyInput { forward: false, back: false, left: false, right: false, stick: Vec2::new(0.0, 0.5) };
+        let mut a = Settings::default();
+        let mut b = Settings::default();
+        let s = fly_step(&half, &view, &mut a, Vec3::Z, Vec3::Y, 0.1);
+        let k = fly_step(&FORWARD, &view, &mut b, Vec3::Z, Vec3::Y, 0.1);
+        assert!((s.z - k.z * 0.5).abs() < 1e-6 && s.z > 0.0);
     }
 
     #[test]

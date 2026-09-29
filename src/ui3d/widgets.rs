@@ -5,11 +5,11 @@ use bevy::input::keyboard::{Key, KeyboardInput};
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
-use bevy::window::PrimaryWindow;
 
 use super::theme;
 use super::actions::{Action, UiAction};
 use super::{UiRoot, UiState};
+use crate::touch::Pointer;
 
 /// What a window is for. Some kinds only display things and do not stop the
 /// world from receiving input.
@@ -421,10 +421,6 @@ pub fn owning_window(mut entity: Entity, parents: &Query<&Parent>, windows: &Que
     }
 }
 
-fn cursor(window: &Query<&Window, With<PrimaryWindow>>) -> Option<Vec2> {
-    window.get_single().ok()?.cursor_position()
-}
-
 /// Raises a window when any part of it is pressed.
 fn focus_windows(mut ui: ResMut<UiState>, windows: Query<(Entity, &Interaction), (With<Window3d>, Changed<Interaction>)>, mut z: Query<&mut GlobalZIndex, With<Window3d>>) {
     for (entity, interaction) in &windows {
@@ -440,13 +436,14 @@ fn focus_windows(mut ui: ResMut<UiState>, windows: Query<(Entity, &Interaction),
 
 fn drag_windows(
     mut ui: ResMut<UiState>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window, With<PrimaryWindow>>,
+    pointer: Res<Pointer>,
+    scale: Res<UiScale>,
     title_bars: Query<(&Interaction, &Parent), With<TitleBar>>,
     mut nodes: Query<&mut Node, With<Window3d>>,
 ) {
-    let Some(pointer) = cursor(&windows) else { return };
-    if !mouse.pressed(MouseButton::Left) {
+    // Window positions are in UI units.
+    let Some(position) = pointer.position.map(|p| p / scale.0) else { return };
+    if !pointer.pressed {
         ui.drag = None;
     }
     if ui.drag.is_none() {
@@ -454,35 +451,43 @@ fn drag_windows(
             if *interaction == Interaction::Pressed {
                 if let Ok(node) = nodes.get(parent.get()) {
                     let (Val::Px(x), Val::Px(y)) = (node.left, node.top) else { continue };
-                    ui.drag = Some(WindowDrag { window: parent.get(), grab: pointer - Vec2::new(x, y) });
+                    ui.drag = Some(WindowDrag { window: parent.get(), grab: position - Vec2::new(x, y) });
                 }
             }
         }
     }
     if let Some(drag) = ui.drag {
         if let Ok(mut node) = nodes.get_mut(drag.window) {
-            let pos = pointer - drag.grab;
+            let pos = position - drag.grab;
             node.left = Val::Px(pos.x);
             node.top = Val::Px(pos.y.max(0.0));
         }
     }
 }
 
-/// Buttons fire when the mouse is released over them after being pressed.
-fn button_clicks(mouse: Res<ButtonInput<MouseButton>>, mut buttons: Query<(Entity, &Interaction, &mut UiButton)>, mut actions: EventWriter<UiAction>, parents: Query<&Parent>, windows: Query<&Window3d>, mut fired: Local<Vec<(Entity, Action)>>) {
+/// Buttons fire when the pointer is released after pressing them.
+fn button_clicks(
+    pointer: Res<Pointer>,
+    mut buttons: Query<(Entity, &Interaction, &mut UiButton)>,
+    mut actions: EventWriter<UiAction>,
+    parents: Query<&Parent>,
+    windows: Query<&Window3d>,
+    mut fired: Local<Vec<(Entity, Action)>>,
+) {
     fired.clear();
     for (entity, interaction, mut button) in &mut buttons {
-        match interaction {
-            Interaction::Pressed => button.armed = true,
-            Interaction::Hovered if button.armed && mouse.just_released(MouseButton::Left) => {
-                button.armed = false;
+        if *interaction == Interaction::Pressed && pointer.pressed {
+            button.armed = true;
+        }
+        if button.armed && pointer.just_released && !pointer.long_pressed {
+            // A finger lifting reports no hover, so trust the press; with a
+            // mouse, releasing off the button cancels.
+            if pointer.touch || *interaction != Interaction::None {
                 fired.push((entity, button.action.clone()));
             }
-            _ => {
-                if !mouse.pressed(MouseButton::Left) {
-                    button.armed = false;
-                }
-            }
+            button.armed = false;
+        } else if !pointer.pressed {
+            button.armed = false;
         }
     }
     for (entity, action) in fired.drain(..) {
@@ -603,12 +608,12 @@ fn refresh_text_boxes(
 
 fn list_clicks(
     time: Res<Time>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    pointer: Res<Pointer>,
     rows: Query<(&ListRow, &Interaction, &Parent)>,
     mut lists: Query<&mut ListBox>,
     mut activated: EventWriter<ListActivated>,
 ) {
-    if !mouse.just_pressed(MouseButton::Left) {
+    if !pointer.just_pressed {
         return;
     }
     for (row, interaction, parent) in &rows {

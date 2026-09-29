@@ -26,6 +26,7 @@ pub mod objects;
 pub mod overlay;
 pub mod physics;
 pub mod settings;
+pub mod touch;
 pub mod ui3d;
 pub mod view;
 pub mod wireframe;
@@ -71,6 +72,7 @@ pub fn run_game() {
             effects::EffectsPlugin,
             axis::AxisPlugin,
             wireframe::WireframePlugin,
+            touch::TouchPlugin,
             devtools::DevtoolsPlugin,
         ))
         .add_systems(Startup, (spawn_main_camera, setup_world.after(spawn_main_camera)))

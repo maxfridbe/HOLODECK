@@ -7,11 +7,11 @@
 
 use bevy::prelude::*;
 use bevy::ui::FocusPolicy;
-use bevy::window::PrimaryWindow;
 
 use super::actions::{Action, UiAction};
 use super::theme;
 use super::UiRoot;
+use crate::touch::Pointer;
 use crate::objects::manip::ManipKind;
 use crate::view::{MainCamera, ViewType};
 
@@ -74,6 +74,8 @@ pub struct MenuBar {
     pub is_context: bool,
     /// The header whose items are showing.
     pub open: Option<usize>,
+    /// The item under the pointer during the current press.
+    pressed_item: Option<(usize, usize)>,
     /// Bumped whenever the entries change so the nodes get rebuilt.
     revision: u32,
     built: Option<(u32, MenuState, Option<usize>)>,
@@ -89,6 +91,7 @@ impl MenuBar {
             is_context,
             // A context menu shows its first header's items straight away.
             open: is_context.then_some(0),
+            pressed_item: None,
             revision: 0,
             built: None,
         }
@@ -281,7 +284,7 @@ fn animate_menus(time: Res<Time>, mut commands: Commands, mut bars: Query<(Entit
 
 /// Hover, click and dismissal behaviour.
 fn menu_input(
-    mouse: Res<ButtonInput<MouseButton>>,
+    pointer: Res<Pointer>,
     mut bars: Query<(&mut MenuBar, &Children)>,
     nodes: Query<(&MenuNode, &Interaction)>,
     tab: Query<&Interaction, With<MinTab>>,
@@ -291,7 +294,7 @@ fn menu_input(
     for (mut bar, children) in &mut bars {
         match bar.state {
             MenuState::Min => {
-                if mouse.just_pressed(MouseButton::Left) && tab.iter().any(|i| *i != Interaction::None) {
+                if pointer.just_pressed && tab.iter().any(|i| *i != Interaction::None) {
                     bar.state = MenuState::Engaging;
                 }
             }
@@ -319,12 +322,18 @@ fn menu_input(
                     }
                 }
 
+                // A finger lifting leaves nothing hovered, so remember what
+                // was under the pointer while it was down.
+                if hovered_item.is_some() || pointer.just_pressed {
+                    bar.pressed_item = hovered_item;
+                }
                 let over_menu = hovered_header.is_some() || hovered_item.is_some();
-                if !over_menu && (mouse.just_pressed(MouseButton::Left) || mouse.just_pressed(MouseButton::Right) || mouse.just_pressed(MouseButton::Middle)) {
+                if !over_menu && (pointer.just_pressed || pointer.secondary) {
                     bar.open = None;
                     bar.state = MenuState::Retracting;
-                } else if mouse.just_released(MouseButton::Left) {
-                    if let Some((h, i)) = hovered_item {
+                } else if pointer.just_released && !pointer.long_pressed {
+                    // (Lifting the finger that long-pressed to open this menu is not a choice.)
+                    if let Some((h, i)) = hovered_item.or(bar.pressed_item.take()) {
                         let entry = bar.headers[h].items[i].clone();
                         if entry.enabled && entry.action != Action::Nothing {
                             actions.send(UiAction { action: entry.action, window: None });
@@ -491,9 +500,6 @@ pub fn in_menu_tab_area(pos: Vec2) -> bool {
     pos.x < theme::MENU_WIDTH && pos.y < theme::MENU_HEIGHT
 }
 
-pub fn cursor_position(window: &Query<&Window, With<PrimaryWindow>>) -> Option<Vec2> {
-    window.get_single().ok()?.cursor_position()
-}
 
 #[cfg(test)]
 mod tests {
