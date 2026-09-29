@@ -1,0 +1,28 @@
+# Rust
+/target
+
+# Gradle
+.gradle/
+build/
+app/build/
+app/src/main/jniLibs/
+
+# Android
+*.apk
+*.idsig
+
+# Local Logs and Temp Files
+*.log
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+app/.cxx/
+
+# Original source archive (extracted sources live in cpp/)
+*.rar
+
+# Local screenshots from testing
+*.png.tmp

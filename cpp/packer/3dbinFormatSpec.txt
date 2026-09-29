@@ -1,0 +1,35 @@
+/*
+ * 3dbin Format Specification Sheet 04/13/04
+ */
+ 
+ Alignment: 1
+ 
+ int magicOne = 4;				4 bytes
+ int magicTwo = 2;				4 bytes
+ char name[32];					32 bytes
+ char comments[128];			128 bytes
+ int lodCount;					4 bytes
+ enum objectType;				4 bytes
+ 
+ foreach lod
+	int meshCount;				4 bytes
+	foreach meshCount
+		foreach vertex
+			float vertex[3];	12 bytes
+			float color[4];		16 bytes
+			int texturebind;	4 bytes
+			float uv[2];		8 bytes
+			float normals[3];	12 bytes
+
+float magic = 3.14;				4 bytes
+
+foreach lod
+	int countperLod;			4 bytes
+	int textureId;				4 bytes
+	int width;					4 bytes
+	int height;					4 bytes
+	
+	foreach width * height * 4
+		unsigned char rgba[4];	4 bytes
+ 
+  

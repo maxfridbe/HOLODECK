@@ -1,0 +1,78 @@
+[package]
+name = "holodeck"
+version = "26.929.0"
+edition = "2024"
+
+[dependencies]
+# Feature list is trimmed to a minimal 3D game but keeps every flag the
+# multi-platform build depends on:
+#   android-native-activity -> required for the cargo-apk Android path
+#   x11                     -> required for native Linux windowing
+#   multi_threaded          -> desktop performance (ignored on wasm)
+#   webgl2                  -> required for the browser/WASM build
+bevy = { version = "0.15.2", default-features = false, features = [
+    "android-native-activity",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline",
+    "bevy_gizmos",
+    "bevy_pbr",
+    "bevy_render",
+    "bevy_scene",
+    "bevy_sprite",
+    "bevy_state",
+    "bevy_text",
+    "bevy_ui",
+    "bevy_winit",
+    "default_font",
+    "hdr",
+    "multi_threaded",
+    "png",
+    "smaa_luts",
+    "tonemapping_luts",
+    "webgl2",
+    "x11"
+] }
+# Embeds the assets/ folder into the binary/APK so no runtime file IO is
+# needed on Android (where Bevy's AssetServer cannot read loose files).
+bevy_embedded_assets = "0.12"
+
+# Browser build: ahash (via bevy) pulls getrandom 0.3, which refuses to
+# compile for wasm32-unknown-unknown unless the JS backend is enabled —
+# this feature plus RUSTFLAGS --cfg getrandom_backend="wasm_js" (set by
+# build_web.sh and the CI web job).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+# The library build is what Android consumes (cdylib for cargo-apk /
+# NativeActivity, staticlib for other embedding scenarios). The rlib lets
+# the desktop binary below reuse the same code.
+[lib]
+name = "holodeck"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Desktop entry point (Linux native + Windows cross-compile).
+[[bin]]
+name = "holodeck"
+path = "src/main.rs"
+
+# Size-optimized profile used ONLY by the browser build (build_web.sh / CI
+# web job). Native platforms keep the default speed-optimized release.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+
+# --- cargo-apk configuration (primary Android path) ---
+[package.metadata.android]
+package = "com.vrupl.holodeck"
+label = "Holodeck"
+assets = "assets"
+
+[package.metadata.android.signing.release]
+path = "/var/home/maxfridbe/.android/debug.keystore"
+keystore_password = "android"
+key_alias = "androiddebugkey"
+key_password = "android"

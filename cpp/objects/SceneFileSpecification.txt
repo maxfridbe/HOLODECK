@@ -1,0 +1,11 @@
+bin or asc?
+SS
+x y z x y z (6 floats, player pos/view)
+objectCount (1 integer 0 or greater)
+foeach objectCount
+	filename (relative)
+	id			( >= 0, valid, -1 means blank entry)
+	rx ry rz (3 floats, rotate values)
+	sx sy sz (3 floats, scale factors)
+	tx ty tz (3 floats, translate scalars)
+	
