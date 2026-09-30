@@ -6,12 +6,17 @@
 
 Holodeck is a 3D scene editor / simulator: you float inside a holographic grid, load models and scenes, select objects, and move, scale and rotate them with on-screen handles. It is a Rust/[Bevy](https://bevyengine.org) port of the original C++/OpenGL project (VRUPL, 2004–05); the original sources are kept in [`cpp/`](cpp/) for reference. The build system, packaging and CI come from [GameBase](https://github.com/maxfridbe/GameBase), so Holodeck ships to **Linux, Windows, macOS (Apple Silicon), Android and the browser** from one crate.
 
-![A loaded blueEye.3dbin model](docs/screenshots/blueeye-loaded.png)
+![fixed.world with the placed camera's live picture-in-picture view](docs/screenshots/camera-viewport.png)
+
+## Screenshots
 
 | | |
 |---|---|
-| ![fixed.world with translate handles](docs/screenshots/fixed-scene.png) | ![vrupl.3dbin selected with rotate rings](docs/screenshots/vrupl-rotate.png) |
-| ![Long-press context menu on a touch screen](docs/screenshots/touch-context-menu.png) | ![Dragging a handle with a finger](docs/screenshots/touch-translate.png) |
+| ![demo.world seen from across the holodeck: the starfield sky dome with the VRUPL logo above it](docs/screenshots/demo-scene.png) **demo.world** from across the holodeck | ![A blueEye.3dbin model loaded into the room](docs/screenshots/blueeye-loaded.png) **A loaded `.3dbin`** (blueEye) on the holodeck floor |
+| ![Translate handles on a selected object](docs/screenshots/fixed-scene.png) **Translate handles** on a selected object (values show its position) | ![Camera control mode](docs/screenshots/camera-control.png) **Camera control**: flying the placed camera (Esc to return) |
+| ![The Transformations dialog](docs/screenshots/properties.png) **Properties**: typed-in translate / scale / rotate | ![The Load Model file dialog](docs/screenshots/load-dialog.png) **Load Model** dialog with the bundled models |
+| ![Wireframe mode](docs/screenshots/wireframe.png) **Wireframe** mode | ![Orthographic top view](docs/screenshots/top-view.png) **Top view** (orthographic, with the inner grid) |
+| ![Long-press context menu on a touch screen](docs/screenshots/touch-context-menu.png) **Touch**: long-press for the context menu (stick and buttons on screen) | ![Dragging a handle with a finger](docs/screenshots/touch-translate.png) **Touch**: dragging the X handle moved the object 6.09 units |
 
 ## Playing
 
@@ -50,7 +55,7 @@ The controls hide again when a key is pressed. The whole UI scales with the wind
 
 **Menus** — *File* (Connect, Exit) · *Edit* (Duplicate) · *Settings* (Grid colours) · *View* (3d, Front, Back, Left, Right, Top, Bottom, HoloGrid, Wireframe, Inner Grid) · *Scene* (New, Save, Open, Add World Force) · *Model* (Load, Unload).
 
-**Cameras** — the small camera object in the world can be selected: **View** opens a picture-in-picture window showing what it sees, **Control** flies it (Esc to finish), **Translate** moves it.
+**Cameras** — the camera object at the side of the room (it starts aimed at the middle) can be selected: **View** opens a live picture-in-picture window showing what it sees (top screenshot), **Control** flies it (Esc to finish), **Translate** moves it.
 
 **Handles** — after choosing Translate/Scale/Rotate from the context menu, arrows (translate, world axes), cubes (scale, the object's own axes) or rings (rotate, world axes) appear around the object. Drag one and the object follows the pointer. Handles keep a constant size on screen. Faint boxes around every object show its world-space bounding box; a box turns red while it overlaps another.
 

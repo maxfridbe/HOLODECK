@@ -55,6 +55,18 @@ impl CameraRig {
         self.phi = self.phi.clamp(-HALF_PI + 0.08, HALF_PI - 0.08);
     }
 
+    /// Turns the camera to face `target`.
+    pub fn look_at(&mut self, target: Vec3) {
+        let dir = (target - self.pos).normalize_or_zero();
+        if dir == Vec3::ZERO {
+            return;
+        }
+        // Inverse of `direction()`: theta is the yaw from +Z, and positive phi
+        // looks down.
+        self.theta = f64::from(dir.x).atan2(f64::from(dir.z));
+        self.phi = f64::from(-dir.y).asin().clamp(-HALF_PI + 0.08, HALF_PI - 0.08);
+    }
+
     /// Orients a camera model to match this camera and moves it to its position.
     pub fn model_transform(&self) -> Transform {
         Transform {
@@ -153,6 +165,14 @@ mod tests {
     }
 
     #[test]
+    fn look_at_points_the_camera_at_the_target() {
+        let mut rig = CameraRig::new("t", Vec3::new(35.0, 12.0, -5.0));
+        rig.look_at(Vec3::ZERO);
+        let expected = (Vec3::ZERO - rig.pos).normalize();
+        assert!((rig.direction() - expected).length() < 1e-4, "{:?}", rig.direction());
+    }
+
+    #[test]
     fn camera_model_faces_the_viewing_direction() {
         let mut rig = CameraRig::new("t", Vec3::new(1.0, 2.0, 3.0));
         rig.theta = 0.7;
@@ -228,6 +248,8 @@ pub fn spawn_placed_camera(world: &mut World, name: &str, pos: Vec3) -> Result<u
     let bytes = crate::data::model("camera").ok_or_else(|| model::ModelError::NotFound("camera".into()))?;
     let index = world.resource::<CameraManager>().cameras.len();
     let mut rig = CameraRig::new(name, pos);
+    // Placed cameras watch the middle of the room, where scenes are built.
+    rig.look_at(Vec3::new(0.0, 5.0, -10.0));
     let layers = model::hidden_from_quick_camera(index.saturating_sub(1));
     let entity = model::spawn_from_bytes(world, "camera", bytes, rig.model_transform(), layers)?;
     world.entity_mut(entity).insert(CameraObject { index });

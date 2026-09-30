@@ -123,7 +123,7 @@ pub fn spawn_main_camera(mut commands: Commands) {
 
 /// Places the camera object the simulator starts with.
 fn setup_world(world: &mut World) {
-    if let Err(e) = camera::spawn_placed_camera(world, "Camera 1", Vec3::new(10.0, 10.0, 10.0)) {
+    if let Err(e) = camera::spawn_placed_camera(world, "Camera 1", Vec3::new(40.0, 14.0, -30.0)) {
         error!("{e}");
     }
 }

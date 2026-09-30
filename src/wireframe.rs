@@ -53,16 +53,21 @@ fn apply(
             let key = Arc::as_ptr(&geometry.data) as usize;
             let mesh = cache.0.entry(key).or_insert_with(|| meshes.add(visuals::build_wireframe(&geometry.data))).clone();
             let bounds = geometry.data.bounding_box;
-            let edges = commands
-                .spawn((
-                    EdgeLines,
-                    Mesh3d(mesh),
-                    MeshMaterial3d(edge_material.clone()),
-                    bevy::render::primitives::Aabb::from_min_max(bounds.min, bounds.max),
-                    visible_to_all(),
-                ))
-                .id();
-            commands.entity(entity).add_child(edges);
+            let bundle = (
+                EdgeLines,
+                Mesh3d(mesh),
+                MeshMaterial3d(edge_material.clone()),
+                bevy::render::primitives::Aabb::from_min_max(bounds.min, bounds.max),
+                visible_to_all(),
+            );
+            // The object may be despawned before this runs (e.g. a scene is
+            // loaded in the same frame), so only attach if it still exists.
+            commands.queue(move |world: &mut World| {
+                if world.get_entity(entity).is_ok() {
+                    let edges = world.spawn(bundle).id();
+                    world.entity_mut(entity).add_child(edges);
+                }
+            });
         }
 
         for &child in children {

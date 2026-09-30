@@ -6,6 +6,9 @@
 //! ```text
 //! scene:demo        load a bundled scene
 //! select:3          select scene object 3
+//! selectcam:1       select placed camera 1
+//! ui:view           run a menu action: view, control, translate, deselect,
+//!                   loadscene, loadmodel, properties, wireframe
 //! manip:translate   show translate|scale|rotate handles
 //! view:Top          switch view (3d, Front, Back, Left, Right, Top, Bottom)
 //! cam:x,y,z,theta,phi   place the world camera (angles in degrees)
@@ -35,6 +38,7 @@ use crate::objects::manip::{ManipKind, Manipulator};
 use crate::objects::model::{self, Model};
 use crate::objects::pick::Selection;
 use crate::settings::Settings;
+use crate::ui3d::actions::{Action, UiAction};
 use crate::ui3d::menu::{self, MenuBar};
 use crate::view::{ViewPort, ViewType};
 
@@ -42,6 +46,8 @@ use crate::view::{ViewPort, ViewType};
 pub enum Step {
     Scene(String),
     Select(usize),
+    SelectCamera(usize),
+    Ui(Action),
     Manip(ManipKind),
     View(ViewType),
     Cam { pos: Vec3, theta: f64, phi: f64 },
@@ -64,6 +70,18 @@ pub fn parse_script(text: &str) -> Result<Vec<Step>, String> {
             Ok(vec![match name {
                 "scene" => Step::Scene(arg.to_owned()),
                 "select" => Step::Select(arg.trim().parse().map_err(|_| format!("bad id in '{step}'"))?),
+                "selectcam" => Step::SelectCamera(arg.trim().parse().map_err(|_| format!("bad camera in '{step}'"))?),
+                "ui" => Step::Ui(match arg {
+                    "view" => Action::LookFromCamera,
+                    "control" => Action::ControlCamera,
+                    "translate" => Action::SetManip(ManipKind::Translate),
+                    "deselect" => Action::Deselect,
+                    "loadscene" => Action::LoadScene,
+                    "loadmodel" => Action::LoadModel,
+                    "properties" => Action::ObjectProperties,
+                    "wireframe" => Action::ToggleWireframe,
+                    _ => return Err(format!("unknown ui action '{arg}'")),
+                }),
                 "manip" => Step::Manip(match arg {
                     "translate" => ManipKind::Translate,
                     "scale" => ManipKind::Scale,
@@ -154,6 +172,13 @@ fn run_script(world: &mut World) {
         Step::Select(id) => {
             let entity = world.resource::<Model>().entity(id);
             world.resource_mut::<Selection>().entity = entity;
+        }
+        Step::SelectCamera(index) => {
+            let entity = world.resource::<CameraManager>().cameras.get(index).and_then(|c| c.model);
+            world.resource_mut::<Selection>().entity = entity;
+        }
+        Step::Ui(action) => {
+            world.send_event(UiAction { action, window: None });
         }
         Step::Manip(kind) => world.resource_mut::<Manipulator>().kind = Some(kind),
         Step::View(view_type) => {
