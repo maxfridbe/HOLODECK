@@ -62,6 +62,8 @@ pub enum Action {
     NetConnect,
     FileOk,
     GridScheme(GridColorScheme),
+    /// A list's scroll button: move the window's list by this many rows.
+    ScrollList(i32),
 }
 
 /// An action together with the window it came from, if any.
@@ -201,7 +203,7 @@ fn perform(world: &mut World, UiAction { action, window }: UiAction) {
         Action::NewScene => {
             if open_dialog_allowed(world) {
                 set_command(world, Command::RequestUnloadScene);
-                with_ctx(world, |ctx| dialogs::confirm(ctx, "Unload", "Are you sure you want to remove\nthe scene?", "Create", "Cancel"));
+                with_ctx(world, |ctx| dialogs::confirm(ctx, "Unload", "Are you sure you want to remove\nthe the scene?", "Ok", "Cancel"));
             }
         }
         Action::UnloadModel => {
@@ -359,6 +361,16 @@ fn perform(world: &mut World, UiAction { action, window }: UiAction) {
         Action::RemoveForce => {
             if let Some(window) = window {
                 move_force(world, window, false);
+            }
+        }
+        Action::ScrollList(rows) => {
+            if let Some(window) = window {
+                let lists: Vec<Entity> = world.query_filtered::<Entity, With<ListBox>>().iter(world).collect();
+                if let Some(list) = lists.into_iter().find(|&l| in_window(world, l, window)) {
+                    if let Some(mut list) = world.get_mut::<ListBox>(list) {
+                        list.scroll(rows);
+                    }
+                }
             }
         }
         Action::AddWorldForcesMenu => {
@@ -560,8 +572,7 @@ fn open_video_window(world: &mut World, index: usize) {
         RenderLayers::layer(model::quick_camera_layer(index.saturating_sub(1))),
     ));
 
-    let name = world.resource::<CameraManager>().cameras[index].name.clone();
-    let window = with_ctx(world, |ctx| dialogs::video_window(ctx, &name, handle));
+    let window = with_ctx(world, |ctx| dialogs::video_window(ctx, handle));
     if let Some(window) = window {
         world.entity_mut(window).insert(VideoWindow(index));
         world.resource_mut::<CameraManager>().cameras[index].video_window = Some(window);

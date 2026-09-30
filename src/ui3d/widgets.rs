@@ -8,6 +8,7 @@ use bevy::ui::FocusPolicy;
 
 use super::theme;
 use super::actions::{Action, UiAction};
+use super::panel::PanelMaterial;
 use super::{UiRoot, UiState};
 use crate::touch::Pointer;
 
@@ -64,6 +65,9 @@ pub struct TextBox {
     /// Only digits, '.' and '-' are accepted.
     pub digits_only: bool,
     pub password: bool,
+    /// Drawn with a frame and fill even though it is read-only (the file
+    /// dialog's path box was an ordinary text box in the original).
+    pub framed: bool,
     /// Tab order within the window.
     pub order: usize,
 }
@@ -207,13 +211,16 @@ pub struct WidgetsPlugin;
 
 impl Plugin for WidgetsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<ListActivated>().add_systems(
+        app.add_event::<ListActivated>()
+            .add_plugins(UiMaterialPlugin::<PanelMaterial>::default())
+            .add_systems(PostUpdate, sync_panels)
+            .add_systems(
             Update,
             (
                 focus_windows,
                 drag_windows,
                 button_clicks,
-                button_colors,
+                window_focus_colors,
                 text_box_focus,
                 keyboard_input,
                 list_clicks,
@@ -236,13 +243,47 @@ pub struct WindowSpec<'a> {
     pub cancel_action: Option<Action>,
 }
 
+/// The desired look of a node; turned into a [`PanelMaterial`] by
+/// [`sync_panels`] (and updated in place when it changes).
+#[derive(Component, Clone, Debug)]
+pub struct Panel(pub PanelMaterial);
+
+/// Size of a window's cut corners, as in the original:
+/// `curveRad = (width / 10 + height / 10) / 2`.
+pub fn curve_radius(size: Vec2) -> f32 {
+    // Integer arithmetic, as in the C++.
+    (((size.x / 10.0).floor() + (size.y / 10.0).floor()) / 2.0).floor()
+}
+
+#[derive(Component)]
+pub struct WindowCaption;
+
+/// The UI font at the original's size, with lines no taller than the font
+/// (the original placed text on 16-18px rows).
+pub fn ui_font() -> TextFont {
+    TextFont { font_size: theme::FONT_SIZE, ..default() }
+}
+
+fn window_panel(size: Vec2, focused: bool) -> PanelMaterial {
+    let curve = curve_radius(size);
+    PanelMaterial::flat(if focused { theme::WINDOW_FOCUSED } else { theme::WINDOW })
+        .rounded([0.0, 0.0, curve, curve])
+        .bordered(theme::WINDOW_OUTLINE, 1.0)
+}
+
 /// Spawns a window and returns `(window, content)`. Children of `content`
 /// are positioned with absolute window-relative pixel coordinates.
+///
+/// Drawn like the original `Window3d`: a flat light-grey body (brighter
+/// when focused) with square top corners, rounded-off bottom corners and a
+/// one-pixel shadow outline; the caption sits in a white-to-grey tab inset
+/// from the top edge; a magenta close button at the top right.
 pub fn spawn_window(commands: &mut Commands, camera: Entity, ui: &mut UiState, spec: WindowSpec) -> (Entity, Entity) {
     ui.next_z += 1;
     let z = 100 + ui.next_z;
     let menu_tab = if ui.touch_mode { Vec2::new(theme::TOUCH_MENU_TAB_WIDTH, theme::TOUCH_MENU_HEIGHT) } else { Vec2::new(theme::MENU_TAB_WIDTH, theme::MENU_HEIGHT) };
     let pos = fit_on_screen(spec.pos, spec.size, ui.screen, menu_tab);
+    let curve = curve_radius(spec.size);
     let window = commands
         .spawn((
             Window3d { kind: spec.kind, default_action: spec.default_action, cancel_action: spec.cancel_action },
@@ -253,19 +294,9 @@ pub fn spawn_window(commands: &mut Commands, camera: Entity, ui: &mut UiState, s
                 top: Val::Px(pos.y),
                 width: Val::Px(spec.size.x),
                 height: Val::Px(spec.size.y),
-                border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
-            BackgroundColor(theme::WINDOW),
-            BorderColor(theme::WINDOW_BORDER),
-            BorderRadius::all(Val::Px(6.0)),
-            BoxShadow {
-                color: Color::srgba(0.0, 0.0, 0.0, 0.5),
-                x_offset: Val::Px(5.0),
-                y_offset: Val::Px(5.0),
-                spread_radius: Val::Px(0.0),
-                blur_radius: Val::Px(6.0),
-            },
+            Panel(window_panel(spec.size, true)),
             Interaction::default(),
             FocusPolicy::Block,
             GlobalZIndex(z),
@@ -275,28 +306,63 @@ pub fn spawn_window(commands: &mut Commands, camera: Entity, ui: &mut UiState, s
     ui.focused_window = Some(window);
 
     let content = commands.spawn(Node { position_type: PositionType::Absolute, width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }).id();
+    // The drag area is the top strip; the visible tab spans from one corner
+    // curve to the other, one pixel down, 19 pixels tall.
     let title_bar = commands
         .spawn((
             TitleBar,
             Interaction::default(),
-            Node {
-                width: Val::Percent(100.0),
-                height: Val::Px(theme::TITLE_HEIGHT),
-                position_type: PositionType::Absolute,
-                align_items: AlignItems::Center,
-                padding: UiRect::horizontal(Val::Px(8.0)),
-                ..default()
-            },
-            BackgroundColor(theme::TITLE_BAR),
-            BorderRadius::top(Val::Px(4.0)),
+            Node { width: Val::Percent(100.0), height: Val::Px(theme::TITLE_HEIGHT), position_type: PositionType::Absolute, ..default() },
         ))
         .with_children(|bar| {
-            bar.spawn((Text::new(spec.title), TextFont { font_size: theme::FONT_SIZE, ..default() }, TextColor(theme::TITLE_TEXT)));
+            bar.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(curve),
+                    top: Val::Px(1.0),
+                    width: Val::Px((spec.size.x - 2.0 * curve).max(0.0)),
+                    height: Val::Px(19.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                Panel(PanelMaterial::gradient(theme::TITLE_TOP, theme::TITLE_BOTTOM).rounded([0.0, 0.0, 19.0, 19.0])),
+            ))
+            .with_children(|tab| {
+                tab.spawn((WindowCaption, Text::new(spec.title), ui_font(), TextColor(theme::TEXT), TextLayout::new_with_no_wrap()));
+            });
         })
         .id();
-    let close = spawn_button(commands, "X", Action::CloseWindow, Vec2::new(28.0, theme::TITLE_HEIGHT - 4.0), Vec2::new(spec.size.x - 34.0, 0.0));
+    let close = spawn_close_button(commands, spec.size);
     commands.entity(window).add_children(&[content, title_bar, close]);
     (window, content)
+}
+
+/// The original close button: `curveRad * 2 / 3` wide, 20 tall, at
+/// `width - 30`, dark magenta to magenta with a red X.
+fn spawn_close_button(commands: &mut Commands, window: Vec2) -> Entity {
+    let width = (curve_radius(window) * 2.0 / 3.0).floor().max(12.0);
+    commands
+        .spawn((
+            UiButton { action: Action::CloseWindow, armed: false },
+            Interaction::default(),
+            FocusPolicy::Block,
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(window.x - 30.0),
+                top: Val::Px(0.0),
+                width: Val::Px(width),
+                height: Val::Px(20.0),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            Panel(PanelMaterial::gradient(theme::CLOSE_TOP, theme::CLOSE_BOTTOM)),
+        ))
+        .with_children(|b| {
+            b.spawn((Text::new("X"), ui_font(), TextColor(theme::CLOSE_TEXT)));
+        })
+        .id()
 }
 
 /// Moves a window so as much of it as possible is on screen (the title bar
@@ -313,46 +379,73 @@ pub fn fit_on_screen(pos: Vec2, size: Vec2, screen: Vec2, menu_tab: Vec2) -> Vec
     pos
 }
 
+/// Message text: dark, one line per 16 pixels (the original's
+/// Message/Confirm text starts at `(10, height / 2)`).
 pub fn spawn_label(commands: &mut Commands, parent: Entity, text: &str, pos: Vec2) -> Entity {
     let label = commands
-        .spawn((
-            Text::new(text),
-            TextFont { font_size: theme::FONT_SIZE, ..default() },
-            TextColor(theme::TEXT),
-            Node { position_type: PositionType::Absolute, left: Val::Px(pos.x), top: Val::Px(pos.y), ..default() },
-        ))
+        .spawn(Node { position_type: PositionType::Absolute, left: Val::Px(pos.x), top: Val::Px(pos.y), flex_direction: FlexDirection::Column, ..default() })
+        .with_children(|lines| {
+            for line in text.lines() {
+                lines.spawn((
+                    Text::new(line),
+                    ui_font(),
+                    TextColor(theme::TEXT),
+                    TextLayout::new_with_no_wrap(),
+                    Node { height: Val::Px(16.0), ..default() },
+                ));
+            }
+        })
         .id();
     commands.entity(parent).add_child(label);
     label
 }
 
 /// Spawns a button positioned in its parent (parent set by the caller).
+///
+/// The original `OK`-type button: a narrow block (1/7 of the width), a
+/// 5-pixel gap and the main block with the caption, both graded from light
+/// to darker grey. No border, no hover highlight. Captions longer than the
+/// block simply overflow, as they did.
 pub fn spawn_button(commands: &mut Commands, caption: &str, action: Action, size: Vec2, pos: Vec2) -> Entity {
+    let small = (size.x / 7.0).floor();
+    let gap = 5.0;
+    let main = size.x - small - gap;
     commands
         .spawn((
             UiButton { action, armed: false },
             Interaction::default(),
             FocusPolicy::Block,
-            Node {
-                position_type: PositionType::Absolute,
-                left: Val::Px(pos.x),
-                top: Val::Px(pos.y),
-                width: Val::Px(size.x),
-                height: Val::Px(size.y),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                border: UiRect::all(Val::Px(1.0)),
-                ..default()
-            },
-            BackgroundColor(theme::BUTTON),
-            BorderColor(theme::FIELD_BORDER),
-            BorderRadius::all(Val::Px(3.0)),
+            Node { position_type: PositionType::Absolute, left: Val::Px(pos.x), top: Val::Px(pos.y), width: Val::Px(size.x), height: Val::Px(size.y), ..default() },
         ))
         .with_children(|b| {
-            b.spawn((Text::new(caption), TextFont { font_size: theme::FONT_SIZE, ..default() }, TextColor(theme::TEXT)));
+            let block = PanelMaterial::gradient(theme::BUTTON_TOP, theme::BUTTON_BOTTOM);
+            b.spawn((
+                Node { position_type: PositionType::Absolute, left: Val::Px(0.0), width: Val::Px(small), height: Val::Percent(100.0), ..default() },
+                Panel(block.clone()),
+            ));
+            b.spawn((
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: Val::Px(small + gap),
+                    width: Val::Px(main),
+                    height: Val::Percent(100.0),
+                    justify_content: JustifyContent::Center,
+                    align_items: AlignItems::Center,
+                    overflow: Overflow::visible(),
+                    ..default()
+                },
+                Panel(block),
+            ))
+            .with_children(|m| {
+                m.spawn((UiButtonCaption, Text::new(caption), ui_font(), TextColor(theme::TEXT), TextLayout::new_with_no_wrap()));
+            });
         })
         .id()
 }
+
+/// The caption of a button (so it can be changed after spawning).
+#[derive(Component)]
+pub struct UiButtonCaption;
 
 pub fn add_button(commands: &mut Commands, parent: Entity, caption: &str, action: Action, size: Vec2, pos: Vec2) -> Entity {
     let button = spawn_button(commands, caption, action, size, pos);
@@ -360,45 +453,65 @@ pub fn add_button(commands: &mut Commands, parent: Entity, caption: &str, action
     button
 }
 
+/// The red bar cursor of a focused text box.
+#[derive(Component)]
+struct TextCursor;
+
+/// The original `TextBox3d`. Editable boxes have a two-pixel frame (blue
+/// when focused, grey otherwise) around a grey fill (lighter when focused);
+/// read-only ones are bare text. Text is blue either way.
 pub fn spawn_text_box(commands: &mut Commands, parent: Entity, field: Option<Field>, text_box: TextBox, size: Vec2, pos: Vec2) -> Entity {
-    let read_only = text_box.read_only;
+    let boxed = !text_box.read_only || text_box.framed;
     let mut entity = commands.spawn((
         text_box,
         Interaction::default(),
         Node {
             position_type: PositionType::Absolute,
-            left: Val::Px(pos.x),
-            top: Val::Px(pos.y),
-            width: Val::Px(size.x),
-            height: Val::Px(size.y),
+            // The frame is drawn two pixels outside the box, as in the original.
+            left: Val::Px(pos.x - if boxed { 2.0 } else { 0.0 }),
+            top: Val::Px(pos.y - if boxed { 2.0 } else { 0.0 }),
+            width: Val::Px(size.x + if boxed { 4.0 } else { 0.0 }),
+            height: Val::Px(size.y + if boxed { 4.0 } else { 0.0 }),
             align_items: AlignItems::Center,
-            padding: UiRect::horizontal(Val::Px(4.0)),
-            border: UiRect::all(Val::Px(if read_only { 0.0 } else { 1.0 })),
+            padding: UiRect::left(Val::Px(4.0)),
+            border: UiRect::all(Val::Px(if boxed { 2.0 } else { 0.0 })),
             overflow: Overflow::clip(),
             ..default()
         },
-        BackgroundColor(if read_only { Color::NONE } else { theme::FIELD }),
-        BorderColor(theme::FIELD_BORDER),
+        BackgroundColor(if boxed { theme::FIELD_FILL } else { Color::NONE }),
+        BorderColor(theme::FIELD_FRAME),
     ));
     if let Some(field) = field {
         entity.insert(field);
     }
     let id = entity
         .with_children(|b| {
-            b.spawn((TextBoxLabel, Text::new(""), TextFont { font_size: theme::FONT_SIZE, ..default() }, TextColor(theme::TEXT)));
+            b.spawn((TextBoxLabel, Text::new(""), ui_font(), TextColor(theme::FIELD_TEXT), TextLayout::new_with_no_wrap()));
+            b.spawn((
+                TextCursor,
+                Node { position_type: PositionType::Absolute, left: Val::Px(3.0), top: Val::Px(2.0), width: Val::Px(2.0), height: Val::Px((size.y - 4.0).max(2.0)), ..default() },
+                BackgroundColor(theme::FIELD_CURSOR),
+                Visibility::Hidden,
+            ));
         })
         .id();
     commands.entity(parent).add_child(id);
     id
 }
 
-/// A read-only label styled as a text box (kept for parity with the layouts).
+/// A read-only text box (the original's labels were read-only text boxes).
 pub fn add_read_only(commands: &mut Commands, parent: Entity, text: &str, size: Vec2, pos: Vec2) -> Entity {
     let mut tb = TextBox { read_only: true, ..default() };
     tb.set_text(text);
     spawn_text_box(commands, parent, None, tb, size, pos)
 }
 
+#[derive(Component)]
+struct ListThumb;
+
+/// The original `ListBox3d`: a dark two-pixel frame around a light grey
+/// list, a cyan band on the selected row, folders in blue, and a scroll
+/// strip on the right (up button, track with a dark thumb, down button).
 pub fn spawn_list_box(commands: &mut Commands, parent: Entity, list: ListBox, size: Vec2, pos: Vec2) -> Entity {
     let (rows, row_height) = (list.rows, list.row_height);
     let id = commands
@@ -406,17 +519,17 @@ pub fn spawn_list_box(commands: &mut Commands, parent: Entity, list: ListBox, si
             list,
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(pos.x),
-                top: Val::Px(pos.y),
-                width: Val::Px(size.x),
-                height: Val::Px(size.y),
+                left: Val::Px(pos.x - 2.0),
+                top: Val::Px(pos.y - 2.0),
+                width: Val::Px(size.x + 4.0),
+                height: Val::Px(size.y + 4.0),
                 flex_direction: FlexDirection::Column,
                 overflow: Overflow::clip(),
                 border: UiRect::all(Val::Px(2.0)),
                 ..default()
             },
             BackgroundColor(theme::LIST),
-            BorderColor(Color::srgb_u8(54, 54, 54)),
+            BorderColor(theme::LIST_FRAME),
         ))
         .with_children(|b| {
             for row in 0..rows {
@@ -425,15 +538,51 @@ pub fn spawn_list_box(commands: &mut Commands, parent: Entity, list: ListBox, si
                     Interaction::default(),
                     Node {
                         height: Val::Px(row_height),
-                        width: Val::Percent(100.0),
-                        padding: UiRect::horizontal(Val::Px(4.0)),
+                        width: Val::Px(size.x - 20.0),
+                        padding: UiRect::left(Val::Px(5.0)),
                         align_items: AlignItems::Center,
                         ..default()
                     },
                     BackgroundColor(Color::NONE),
                 ))
                 .with_children(|r| {
-                    r.spawn((Text::new(""), TextFont { font_size: theme::FONT_SIZE - 1.0, ..default() }, TextColor(theme::TEXT)));
+                    r.spawn((Text::new(""), ui_font(), TextColor(theme::TEXT), TextLayout::new_with_no_wrap()));
+                });
+            }
+            // Scroll strip.
+            let strip = |top: f32, height: f32| Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(size.x - 20.0),
+                top: Val::Px(top),
+                width: Val::Px(20.0),
+                height: Val::Px(height),
+                justify_content: JustifyContent::Center,
+                align_items: AlignItems::Center,
+                ..default()
+            };
+            b.spawn((strip(20.0, (size.y - 40.0).max(0.0)), BackgroundColor(theme::SCROLL_TRACK))).with_children(|t| {
+                t.spawn((
+                    ListThumb,
+                    Node { position_type: PositionType::Absolute, left: Val::Px(2.0), top: Val::Px(0.0), width: Val::Px(16.0), height: Val::Px(4.0), ..default() },
+                    BackgroundColor(theme::SCROLL_THUMB),
+                ));
+            });
+            for (up, top) in [(true, 0.0), (false, size.y - 20.0)] {
+                let (a, z) = if up { (theme::SCROLL_DARK, theme::SCROLL_LIGHT) } else { (theme::SCROLL_LIGHT, theme::SCROLL_DARK) };
+                b.spawn((
+                    UiButton { action: Action::ScrollList(if up { -1 } else { 1 }), armed: false },
+                    Interaction::default(),
+                    FocusPolicy::Block,
+                    strip(top, 20.0),
+                    Panel(PanelMaterial::gradient(a, z)),
+                ))
+                .with_children(|arrow| {
+                    // A 10x10 square with two corners cut away is a triangle.
+                    let corners = if up { [5.0, 5.0, 0.0, 0.0] } else { [0.0, 0.0, 5.0, 5.0] };
+                    arrow.spawn((
+                        Node { width: Val::Px(10.0), height: Val::Px(10.0), ..default() },
+                        Panel(PanelMaterial::flat(theme::SCROLL_THUMB).chamfered(corners)),
+                    ));
                 });
             }
         })
@@ -544,13 +693,31 @@ fn refit_windows(ui: Res<UiState>, mut last: Local<Vec2>, mut windows: Query<&mu
     }
 }
 
-fn button_colors(mut buttons: Query<(&Interaction, &mut BackgroundColor), (With<UiButton>, Changed<Interaction>)>) {
-    for (interaction, mut color) in &mut buttons {
-        color.0 = match interaction {
-            Interaction::Pressed => theme::BUTTON_PRESSED,
-            Interaction::Hovered => theme::BUTTON_HOVER,
-            Interaction::None => theme::BUTTON,
-        };
+/// Creates or updates the material for every [`Panel`].
+pub fn sync_panels(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<PanelMaterial>>,
+    added: Query<(Entity, &Panel), Added<Panel>>,
+    changed: Query<(&Panel, &MaterialNode<PanelMaterial>), Changed<Panel>>,
+) {
+    for (entity, panel) in &added {
+        commands.entity(entity).insert(MaterialNode(materials.add(panel.0.clone())));
+    }
+    for (panel, node) in &changed {
+        if let Some(material) = materials.get_mut(&node.0) {
+            *material = panel.0.clone();
+        }
+    }
+}
+
+/// The focused window is drawn brighter.
+fn window_focus_colors(ui: Res<UiState>, mut windows: Query<(Entity, &Node, &mut Panel), With<Window3d>>) {
+    for (entity, node, mut panel) in &mut windows {
+        let (Val::Px(w), Val::Px(h)) = (node.width, node.height) else { continue };
+        let wanted = window_panel(Vec2::new(w, h), ui.focused_window == Some(entity));
+        if panel.0.top != wanted.top {
+            panel.0 = wanted;
+        }
     }
 }
 
@@ -635,22 +802,35 @@ fn keyboard_input(
 
 fn refresh_text_boxes(
     ui: Res<UiState>,
-    boxes: Query<(Entity, &TextBox, &Children, Option<&Interaction>)>,
+    boxes: Query<(Entity, &TextBox, &Children)>,
     mut labels: Query<&mut Text, With<TextBoxLabel>>,
-    mut borders: Query<&mut BorderColor>,
+    mut cursors: Query<(&mut Node, &mut Visibility), With<TextCursor>>,
+    mut frames: Query<(&mut BorderColor, &mut BackgroundColor)>,
 ) {
-    for (entity, text_box, children, _) in &boxes {
+    for (entity, text_box, children) in &boxes {
         let focused = ui.text_focus == Some(entity);
+        let editing = focused && !text_box.read_only;
         for &child in children {
             if let Ok(mut label) = labels.get_mut(child) {
-                let shown = text_box.display(focused);
+                let shown = text_box.display(false);
                 if label.0 != shown {
                     label.0 = shown;
                 }
             }
+            if let Ok((mut node, mut visibility)) = cursors.get_mut(child) {
+                // The original's red bar: one character cell per position.
+                node.left = Val::Px(3.0 + text_box.cursor as f32 * theme::CHAR_WIDTH);
+                *visibility = if editing { Visibility::Inherited } else { Visibility::Hidden };
+            }
         }
-        if let Ok(mut border) = borders.get_mut(entity) {
-            border.0 = if focused { theme::FIELD_FOCUS } else { theme::FIELD_BORDER };
+        if (!text_box.read_only || text_box.framed) && let Ok((mut frame, mut fill)) = frames.get_mut(entity) {
+            let (f, b) = if editing { (theme::FIELD_FRAME_FOCUSED, theme::FIELD_FILL_FOCUSED) } else { (theme::FIELD_FRAME, theme::FIELD_FILL) };
+            if frame.0 != f {
+                frame.0 = f;
+            }
+            if fill.0 != b {
+                fill.0 = b;
+            }
         }
     }
 }
@@ -700,8 +880,23 @@ fn refresh_lists(
     mut texts: Query<(&mut Text, &mut TextColor)>,
     mut backgrounds: Query<&mut BackgroundColor>,
     row_entities: Query<Entity, With<ListRow>>,
+    tracks: Query<(&Children, &ComputedNode)>,
+    mut thumbs: Query<&mut Node, With<ListThumb>>,
 ) {
     for (list, children) in &lists {
+        // The thumb marks how far down the list is scrolled.
+        let max = list.items.len().saturating_sub(list.rows.saturating_sub(1)).max(1) as f32;
+        let fraction = (list.offset as f32 / max).clamp(0.0, 1.0);
+        for &child in children {
+            if let Ok((track_children, track)) = tracks.get(child) {
+                let height = track.size().y * track.inverse_scale_factor();
+                for &t in track_children {
+                    if let Ok(mut node) = thumbs.get_mut(t) {
+                        node.top = Val::Px(fraction * (height - 4.0).max(0.0));
+                    }
+                }
+            }
+        }
         for &row_entity in children {
             if !row_entities.contains(row_entity) {
                 continue;

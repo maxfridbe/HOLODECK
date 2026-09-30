@@ -10,6 +10,8 @@ use bevy::ui::FocusPolicy;
 
 use super::actions::{Action, UiAction};
 use super::theme;
+use super::panel::PanelMaterial;
+use super::widgets::{Panel, ui_font};
 use super::{UiRoot, UiState};
 use crate::touch::Pointer;
 use crate::objects::manip::ManipKind;
@@ -49,13 +51,6 @@ impl MenuItem {
         self
     }
 
-    fn label(&self) -> String {
-        match self.checked {
-            Some(true) => format!("[x] {}", self.caption),
-            Some(false) => format!("[ ] {}", self.caption),
-            None => self.caption.clone(),
-        }
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -310,6 +305,11 @@ fn animate_menus(time: Res<Time>, ui: Res<UiState>, mut commands: Commands, mut 
         bar.advance(time.delta_secs());
         node.width = Val::Px(if bar.state == MenuState::Min { bar.metrics.tab } else { bar.draw_place });
         node.height = Val::Px(bar.metrics.row);
+        // Clip only while sliding; once open, dropdowns may be wider than the bar.
+        let overflow = if bar.state == MenuState::On { Overflow::visible() } else { Overflow { x: OverflowAxis::Clip, y: OverflowAxis::Visible } };
+        if node.overflow != overflow {
+            node.overflow = overflow;
+        }
         if bar.state == MenuState::Off && bar.is_context {
             commands.entity(entity).despawn_recursive();
         }
@@ -399,26 +399,27 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
             commands.entity(child).despawn_recursive();
         }
 
-        let font = TextFont { font_size: theme::FONT_SIZE, ..default() };
         let m = bar.metrics;
         commands.entity(entity).with_children(|root| {
             if shape == MenuState::Min {
+                // The original's collapsed menu: a small white-to-grey tab.
                 root.spawn((
                     MinTab,
                     Interaction::default(),
                     FocusPolicy::Block,
-                    Node { width: Val::Px(m.tab), height: Val::Px(m.row), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
-                    BackgroundColor(theme::MENU),
-                    BorderRadius::bottom_right(Val::Px(6.0)),
+                    Node { width: Val::Px(m.tab), height: Val::Px(m.row), align_items: AlignItems::Center, padding: UiRect::left(Val::Px(10.0)), ..default() },
+                    Panel(PanelMaterial::gradient(theme::MENU_ON_TOP, theme::MENU_ON_BOTTOM)),
                 ))
                 .with_children(|t| {
-                    t.spawn((Text::new("Menu"), font.clone(), TextColor(theme::TEXT)));
+                    t.spawn((Text::new("Menu"), ui_font(), TextColor(theme::MENU_TEXT), TextLayout::new_with_no_wrap()));
                 });
                 return;
             }
 
             for (h, header) in bar.headers.iter().enumerate() {
                 let is_open = signature.2 == Some(h);
+                // About 10px per character at full size; shrink to fit narrow headers.
+                let caption_size = theme::FONT_SIZE.min((m.header - 12.0) / header.caption.chars().count().max(1) as f32 / 0.6);
                 root.spawn((
                     MenuNode { header: h, item: None, enabled: true },
                     Interaction::default(),
@@ -431,18 +432,16 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
                         height: Val::Px(m.row),
                         overflow: Overflow::clip(),
                         align_items: AlignItems::Center,
-                        // Tighter on narrow screens so captions still fit.
-                        padding: UiRect::horizontal(Val::Px(if m.header < 100.0 { 3.0 } else { 8.0 })),
+                        padding: UiRect::left(Val::Px(10.0_f32.min(m.header / 12.0))),
                         ..default()
                     },
-                    BackgroundColor(if is_open { theme::MENU_HOVER } else { theme::MENU }),
+                    Panel(menu_panel(is_open, true)),
                 ))
                 .with_children(|n| {
                     n.spawn((
                         Text::new(header.caption.clone()),
-                        // About 9 px per character at full size; shrink to fit narrow headers.
-                        TextFont { font_size: theme::FONT_SIZE.min((m.header - 6.0) / header.caption.chars().count().max(1) as f32 / 0.6), ..default() },
-                        TextColor(if is_open { theme::MENU_TEXT_HOVER } else { theme::TEXT }),
+                        TextFont { font_size: caption_size, ..default() },
+                        TextColor(if is_open { theme::MENU_TEXT_SELECTED } else { theme::MENU_TEXT }),
                         TextLayout::new_with_no_wrap(),
                     ));
                 });
@@ -450,9 +449,9 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
                 if !is_open {
                     continue;
                 }
-                // Wide enough for the longest caption (about 9px per character).
-                let widest = header.items.iter().map(|i| i.label().chars().count()).max().unwrap_or(0);
-                let drop_width = theme::MENU_WIDTH.max(widest as f32 * 9.0 + 24.0);
+                // All items as wide as the longest caption, as in the original.
+                let widest = header.items.iter().map(|i| i.caption.chars().count()).max().unwrap_or(0);
+                let drop_width = theme::MENU_WIDTH.max((widest as f32 + 2.0) * 11.0);
                 root.spawn(Node {
                     position_type: PositionType::Absolute,
                     left: Val::Px(h as f32 * m.header),
@@ -467,12 +466,26 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
                             MenuNode { header: h, item: Some(i), enabled: entry.enabled },
                             Interaction::default(),
                             FocusPolicy::Block,
-                            Node { height: Val::Px(m.row), align_items: AlignItems::Center, padding: UiRect::horizontal(Val::Px(8.0)), ..default() },
-                            BackgroundColor(theme::MENU),
+                            Node { height: Val::Px(m.row), align_items: AlignItems::Center, padding: UiRect::left(Val::Px(10.0)), ..default() },
+                            Panel(menu_panel(false, entry.enabled)),
                         ))
                         .with_children(|n| {
-                            let color = if entry.enabled { theme::TEXT } else { theme::MENU_DISABLED };
-                            n.spawn((Text::new(entry.label()), font.clone(), TextColor(color), TextLayout::new_with_no_wrap()));
+                            if entry.checked == Some(true) {
+                                // The original's check mark: a small green square.
+                                n.spawn((
+                                    Node {
+                                        position_type: PositionType::Absolute,
+                                        left: Val::Px(2.0),
+                                        top: Val::Px((m.row - 8.0) / 2.0),
+                                        width: Val::Px(8.0),
+                                        height: Val::Px(8.0),
+                                        ..default()
+                                    },
+                                    BackgroundColor(theme::MENU_CHECK),
+                                ));
+                            }
+                            let color = if entry.enabled { theme::MENU_TEXT } else { theme::MENU_TEXT_DISABLED };
+                            n.spawn((Text::new(entry.caption.clone()), ui_font(), TextColor(color), TextLayout::new_with_no_wrap()));
                         });
                     }
                 });
@@ -481,23 +494,40 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
     }
 }
 
-/// Highlights the hovered item.
-fn hover_highlight(mut nodes: Query<(&MenuNode, &Interaction, &Children, &mut BackgroundColor)>, mut texts: Query<&mut TextColor>) {
-    for (node, interaction, children, mut background) in &mut nodes {
+/// The original menu shading: the selected header or item uses the full
+/// white-to-grey gradient, the others the same at half brightness, and
+/// disabled items the darker "off" gradient.
+fn menu_panel(selected: bool, enabled: bool) -> PanelMaterial {
+    match (selected, enabled) {
+        (_, false) => PanelMaterial::gradient(theme::MENU_OFF_TOP, theme::MENU_OFF_BOTTOM),
+        (true, true) => PanelMaterial::gradient(theme::MENU_ON_TOP, theme::MENU_ON_BOTTOM),
+        (false, true) => PanelMaterial::gradient(theme::MENU_TOP, theme::MENU_BOTTOM),
+    }
+}
+
+/// Highlights the item under the pointer.
+fn hover_highlight(mut nodes: Query<(&MenuNode, &Interaction, &Children, &mut Panel)>, mut texts: Query<&mut TextColor>) {
+    for (node, interaction, children, mut panel) in &mut nodes {
         if node.item.is_none() {
             continue;
         }
         let lit = *interaction != Interaction::None && node.enabled;
-        background.0 = if lit { theme::MENU_HOVER } else { theme::MENU };
+        let wanted = menu_panel(lit, node.enabled);
+        if panel.0.top != wanted.top {
+            panel.0 = wanted;
+        }
         for &child in children {
             if let Ok(mut text) = texts.get_mut(child) {
-                text.0 = if lit {
-                    theme::MENU_TEXT_HOVER
+                let color = if lit {
+                    theme::MENU_TEXT_SELECTED
                 } else if node.enabled {
-                    theme::TEXT
+                    theme::MENU_TEXT
                 } else {
-                    theme::MENU_DISABLED
+                    theme::MENU_TEXT_DISABLED
                 };
+                if text.0 != color {
+                    text.0 = color;
+                }
             }
         }
     }
@@ -641,12 +671,9 @@ mod tests {
     }
 
     #[test]
-    fn items_render_their_check_marks() {
-        let mut i = MenuItem::new("Grid", Action::Nothing);
-        assert_eq!(i.label(), "Grid");
-        i = i.checkable(true);
-        assert_eq!(i.label(), "[x] Grid");
-        i.checked = Some(false);
-        assert_eq!(i.label(), "[ ] Grid");
+    fn check_marks_are_state_not_part_of_the_caption() {
+        let i = MenuItem::new("Grid", Action::Nothing).checkable(true);
+        assert_eq!(i.caption, "Grid");
+        assert_eq!(i.checked, Some(true));
     }
 }

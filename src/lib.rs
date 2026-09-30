@@ -75,7 +75,7 @@ pub fn run_game() {
             touch::TouchPlugin,
             devtools::DevtoolsPlugin,
         ))
-        .add_systems(Startup, (spawn_main_camera, setup_world.after(spawn_main_camera)))
+        .add_systems(Startup, (use_original_font, spawn_main_camera, setup_world.after(spawn_main_camera)))
         .add_systems(
             Update,
             (
@@ -119,6 +119,18 @@ pub fn spawn_main_camera(mut commands: Commands) {
         RenderLayers::layer(model::MAIN_LAYER),
         IsDefaultUiCamera,
     ));
+}
+
+/// The original drew all text with an 18px bold Courier bitmap font.
+/// Liberation Mono Bold (metric-compatible with Courier New, SIL OFL) stands
+/// in for it, installed as the default font so every text uses it.
+fn use_original_font(mut fonts: ResMut<Assets<Font>>) {
+    match Font::try_from_bytes(include_bytes!("../assets/fonts/LiberationMono-Bold.ttf").to_vec()) {
+        Ok(font) => {
+            fonts.insert(&Handle::<Font>::default(), font);
+        }
+        Err(e) => error!("could not load the UI font: {e:?}"),
+    }
 }
 
 /// Places the camera object the simulator starts with.

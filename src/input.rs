@@ -97,12 +97,10 @@ fn look_mode(
     }
     let Ok(mut window) = windows.get_single_mut() else { return };
     let look = looking(&settings, &ui, &manip, &keys);
-    let (grab, visible) = if look { (CursorGrabMode::Locked, false) } else { (CursorGrabMode::None, true) };
+    // (The system cursor stays hidden; the UI draws the original's cursor.)
+    let grab = if look { CursorGrabMode::Locked } else { CursorGrabMode::None };
     if window.cursor_options.grab_mode != grab {
         window.cursor_options.grab_mode = grab;
-    }
-    if window.cursor_options.visible != visible {
-        window.cursor_options.visible = visible;
     }
 }
 

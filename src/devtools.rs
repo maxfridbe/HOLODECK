@@ -8,7 +8,10 @@
 //! select:3          select scene object 3
 //! selectcam:1       select placed camera 1
 //! ui:view           run a menu action: view, control, translate, deselect,
-//!                   loadscene, loadmodel, properties, wireframe
+//!                   loadscene, loadmodel, properties, wireframe, quit, newscene,
+//!                   unload, grid, connect, worldforce, forces, savescene
+//! closeall          close every open window
+//! message:Title|text  show a message box
 //! manip:translate   show translate|scale|rotate handles
 //! view:Top          switch view (3d, Front, Back, Left, Right, Top, Bottom)
 //! cam:x,y,z,theta,phi   place the world camera (angles in degrees)
@@ -48,6 +51,8 @@ pub enum Step {
     Select(usize),
     SelectCamera(usize),
     Ui(Action),
+    CloseAll,
+    Message(String, String),
     Manip(ManipKind),
     View(ViewType),
     Cam { pos: Vec3, theta: f64, phi: f64 },
@@ -80,6 +85,14 @@ pub fn parse_script(text: &str) -> Result<Vec<Step>, String> {
                     "loadmodel" => Action::LoadModel,
                     "properties" => Action::ObjectProperties,
                     "wireframe" => Action::ToggleWireframe,
+                    "quit" => Action::Quit,
+                    "newscene" => Action::NewScene,
+                    "unload" => Action::UnloadModel,
+                    "grid" => Action::ColorSettings,
+                    "connect" => Action::Connect,
+                    "worldforce" => Action::AddWorldForcesMenu,
+                    "forces" => Action::ModifyForces,
+                    "savescene" => Action::SaveScene,
                     _ => return Err(format!("unknown ui action '{arg}'")),
                 }),
                 "manip" => Step::Manip(match arg {
@@ -97,6 +110,11 @@ pub fn parse_script(text: &str) -> Result<Vec<Step>, String> {
                     Step::Cam { pos: Vec3::new(x as f32, y as f32, z as f32), theta: theta.to_radians(), phi: phi.to_radians() }
                 }
                 "menu" => Step::Menu,
+                "closeall" => Step::CloseAll,
+                "message" => {
+                    let (title, text) = arg.split_once('|').unwrap_or((arg, ""));
+                    Step::Message(title.to_owned(), text.replace("\\n", "\n"))
+                }
                 "model" => Step::Model(arg.to_owned()),
                 "size" => {
                     let v: Vec<f64> = arg.split(',').map(number).collect::<Result<_, _>>()?;
@@ -176,6 +194,15 @@ fn run_script(world: &mut World) {
         Step::SelectCamera(index) => {
             let entity = world.resource::<CameraManager>().cameras.get(index).and_then(|c| c.model);
             world.resource_mut::<Selection>().entity = entity;
+        }
+        Step::CloseAll => {
+            let windows: Vec<Entity> = world.query_filtered::<Entity, With<crate::ui3d::widgets::Window3d>>().iter(world).collect();
+            for window in windows {
+                world.send_event(UiAction { action: Action::CloseWindow, window: Some(window) });
+            }
+        }
+        Step::Message(title, text) => {
+            world.send_event(crate::ui3d::actions::ShowMessage::new(title, text));
         }
         Step::Ui(action) => {
             world.send_event(UiAction { action, window: None });

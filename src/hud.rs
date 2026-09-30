@@ -1,17 +1,19 @@
-//! On-screen text: frame rate, controls hint and camera-control readout.
+//! On-screen text as the original printed it: the frame rate and the
+//! camera-control readout.
 
 use bevy::prelude::*;
 
 use crate::camera::CameraManager;
 use crate::settings::{Settings, SystemState};
+use crate::ui3d::UiState;
+use crate::ui3d::widgets::ui_font;
 use crate::view::{MainCamera, ViewPort};
 
 #[derive(Component)]
 struct FpsText;
+/// One of the three camera-control lines.
 #[derive(Component)]
-struct ControlText;
-#[derive(Component)]
-struct HintText;
+struct ControlText(usize);
 
 /// Frames per second, refreshed once a second.
 #[derive(Resource, Default)]
@@ -41,79 +43,65 @@ impl Plugin for HudPlugin {
     }
 }
 
+/// The original printed text with its baseline at the given y; the font's
+/// ascent is about 14 pixels.
+const BASELINE: f32 = 14.0;
+const RED: Color = Color::srgb(1.0, 0.0, 0.0);
+
 fn spawn(mut commands: Commands, camera: Query<Entity, With<MainCamera>>) {
     let Ok(camera) = camera.get_single() else { return };
-    let font = TextFont { font_size: 16.0, ..default() };
+    // "FPS: n" in red, 128 pixels from the right edge, baseline 24.
     commands.spawn((
         FpsText,
         Text::new("FPS: 0"),
-        font.clone(),
-        TextColor(Color::srgb(1.0, 0.0, 0.0)),
-        Node { position_type: PositionType::Absolute, right: Val::Px(16.0), top: Val::Px(6.0), ..default() },
+        ui_font(),
+        TextColor(RED),
+        Node { position_type: PositionType::Absolute, top: Val::Px(24.0 - BASELINE), ..default() },
         TargetCamera(camera),
         PickingBehavior::IGNORE,
     ));
-    commands.spawn((
-        ControlText,
-        Text::new(""),
-        font.clone(),
-        TextColor(Color::srgb(1.0, 0.0, 0.0)),
-        Node { position_type: PositionType::Absolute, left: Val::Px(30.0), top: Val::Px(44.0), ..default() },
-        TargetCamera(camera),
-        PickingBehavior::IGNORE,
-    ));
-    commands.spawn((
-        HintText,
-        Text::new(DESKTOP_HINT),
-        TextFont { font_size: 13.0, ..default() },
-        TextColor(Color::srgba(0.75, 0.75, 0.75, 0.8)),
-        Node { position_type: PositionType::Absolute, left: Val::Px(12.0), bottom: Val::Px(8.0), ..default() },
-        TargetCamera(camera),
-        PickingBehavior::IGNORE,
-    ));
+    // Camera control mode: three red lines at x 30, baselines 44, 66 and 86.
+    for (i, baseline) in [44.0, 66.0, 86.0].into_iter().enumerate() {
+        commands.spawn((
+            ControlText(i),
+            Text::new(""),
+            ui_font(),
+            TextColor(RED),
+            Node { position_type: PositionType::Absolute, left: Val::Px(30.0), top: Val::Px(baseline - BASELINE), ..default() },
+            TargetCamera(camera),
+            PickingBehavior::IGNORE,
+        ));
+    }
 }
-
-const DESKTOP_HINT: &str = "WASD fly   drag / Ctrl+mouse look   wheel zoom   Space menu   right-click context menu   click select   G grid   Q quit";
-const TOUCH_HINT: &str = "tap select   drag look   long-press menu";
 
 fn update(
     time: Res<Time>,
-    ui: Res<crate::ui3d::UiState>,
+    ui: Res<UiState>,
     mut stats: ResMut<FrameStats>,
     settings: Res<Settings>,
     cameras: Res<CameraManager>,
     view: Res<ViewPort>,
-    mut fps: Query<&mut Text, (With<FpsText>, Without<ControlText>)>,
-    mut control: Query<&mut Text, (With<ControlText>, Without<FpsText>)>,
-    mut hint: Query<(&mut Visibility, &mut Text, &mut Node), (With<HintText>, Without<FpsText>, Without<ControlText>)>,
+    mut fps: Query<(&mut Text, &mut Node), (With<FpsText>, Without<ControlText>)>,
+    mut control: Query<(&ControlText, &mut Text), Without<FpsText>>,
 ) {
     stats.tick(time.delta_secs());
-    if let Ok(mut text) = fps.get_single_mut() {
+    if let Ok((mut text, mut node)) = fps.get_single_mut() {
         text.0 = format!("FPS: {}", stats.fps);
+        node.left = Val::Px(ui.screen.x - 128.0);
     }
     let controlling = settings.system == SystemState::CameraControl;
-    if let Ok(mut text) = control.get_single_mut() {
-        text.0 = match cameras.cameras.get(view.camera) {
-            Some(rig) if controlling => format!(
-                "Camera Control Mode, Press ESC when camera is positioned.\nPhi: {:.1}\nTheta: {:.1}",
-                rig.phi.to_degrees(),
-                rig.theta.to_degrees()
-            ),
+    let rig = cameras.cameras.get(view.camera);
+    for (line, mut text) in &mut control {
+        let wanted = match (controlling, rig) {
+            (true, Some(rig)) => match line.0 {
+                0 => "Camera Control Mode, Press ESC when camera is positioned.".to_owned(),
+                1 => format!("Phi: {}", rig.phi.to_degrees() as f32),
+                _ => format!("Theta: {}", rig.theta.to_degrees() as f32),
+            },
             _ => String::new(),
         };
-    }
-    if let Ok((mut visibility, mut text, mut node)) = hint.get_single_mut() {
-        // On narrow touch screens there is no room between the stick and buttons.
-        let room = !ui.touch_mode || ui.screen.x >= 640.0;
-        *visibility = if controlling || !room { Visibility::Hidden } else { Visibility::Inherited };
-        // On touch screens the bottom corners belong to the stick and
-        // buttons, so the (short) hint sits between them.
-        let (wanted, left) = if ui.touch_mode { (TOUCH_HINT, Val::Px(190.0)) } else { (DESKTOP_HINT, Val::Px(12.0)) };
         if text.0 != wanted {
-            text.0 = wanted.to_owned();
-        }
-        if node.left != left {
-            node.left = left;
+            text.0 = wanted;
         }
     }
 }

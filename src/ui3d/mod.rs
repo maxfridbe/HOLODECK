@@ -10,9 +10,11 @@
 use bevy::prelude::*;
 
 pub mod actions;
+pub mod cursor;
 pub mod dialogs;
 pub mod filebrowser;
 pub mod menu;
+pub mod panel;
 pub mod theme;
 pub mod widgets;
 
@@ -71,7 +73,7 @@ impl Plugin for Ui3dPlugin {
         app.init_resource::<UiState>()
             .add_event::<UiAction>()
             .add_event::<actions::ShowMessage>()
-            .add_plugins((widgets::WidgetsPlugin, menu::MenuPlugin))
+            .add_plugins((widgets::WidgetsPlugin, menu::MenuPlugin, cursor::CursorPlugin))
             .add_systems(Startup, menu::spawn_main_menu.after(crate::spawn_main_camera))
             .add_systems(Update, actions::run_actions)
             .add_systems(PreUpdate, scale_ui)
@@ -79,9 +81,9 @@ impl Plugin for Ui3dPlugin {
     }
 }
 
-/// The UI is laid out for a 1280x720 window and scaled to fit the actual
-/// one, so it stays the same proportion of the screen at any resolution.
-pub const REFERENCE_SIZE: Vec2 = Vec2::new(1280.0, 720.0);
+/// The UI is laid out for the original's fixed 1024x768 window and scaled to
+/// fit the actual one, so it keeps the same proportion of the screen.
+pub const REFERENCE_SIZE: Vec2 = Vec2::new(1024.0, 768.0);
 
 pub fn ui_scale_for(window: Vec2) -> f32 {
     (window / REFERENCE_SIZE).min_element().clamp(0.5, 4.0)
@@ -142,9 +144,9 @@ mod tests {
     #[test]
     fn ui_scales_with_the_window() {
         assert_eq!(ui_scale_for(REFERENCE_SIZE), 1.0);
-        assert_eq!(ui_scale_for(Vec2::new(3840.0, 2160.0)), 3.0);
+        assert_eq!(ui_scale_for(Vec2::new(2048.0, 1536.0)), 2.0);
         // Limited by the tighter dimension, so everything still fits.
-        assert_eq!(ui_scale_for(Vec2::new(2560.0, 720.0)), 1.0);
+        assert_eq!(ui_scale_for(Vec2::new(4096.0, 768.0)), 1.0);
         assert_eq!(ui_scale_for(Vec2::new(200.0, 100.0)), 0.5);
     }
 
@@ -155,6 +157,6 @@ mod tests {
         assert!(ui_scale_for_input(phone, false) < 0.6);
         assert_eq!(ui_scale_for_input(phone, true), 1.0);
         // Big touch screens still scale up.
-        assert_eq!(ui_scale_for_input(Vec2::new(2560.0, 1440.0), true), 2.0);
+        assert_eq!(ui_scale_for_input(Vec2::new(2048.0, 1536.0), true), 2.0);
     }
 }

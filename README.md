@@ -16,7 +16,7 @@ Holodeck is a 3D scene editor / simulator: you float inside a holographic grid, 
 | ![Translate handles on a selected object](docs/screenshots/fixed-scene.png) **Translate handles** on a selected object (values show its position) | ![Camera control mode](docs/screenshots/camera-control.png) **Camera control**: flying the placed camera (Esc to return) |
 | ![The Transformations dialog](docs/screenshots/properties.png) **Properties**: typed-in translate / scale / rotate | ![The Load Model file dialog](docs/screenshots/load-dialog.png) **Load Model** dialog with the bundled models |
 | ![Wireframe mode](docs/screenshots/wireframe.png) **Wireframe** mode | ![Orthographic top view](docs/screenshots/top-view.png) **Top view** (orthographic, with the inner grid) |
-| ![Long-press context menu on a touch screen](docs/screenshots/touch-context-menu.png) **Touch**: long-press for the context menu (stick and buttons on screen) | ![Dragging a handle with a finger](docs/screenshots/touch-translate.png) **Touch**: dragging the X handle moved the object 6.09 units |
+| ![The View menu](docs/screenshots/view-menu.png) **View menu** with the original's green check marks | ![Long-press context menu on a touch screen](docs/screenshots/touch-context-menu.png) **Touch**: long-press for the context menu (stick and buttons on screen) |
 
 ## Playing
 
@@ -51,7 +51,7 @@ Start with **Space** to open the menu, then **Scene → Open** and pick `demo.wo
 | Drag a handle | Move / scale / rotate the selected object |
 | **MENU** / **GRID** buttons | Show the menu bar / toggle the grid |
 
-The controls hide again when a key is pressed. The UI is laid out for 1280×720 and scales with the window, but on touch screens it never shrinks below 1 unit per dp, and menus, lists and tabs switch to finger-sized rows (32/30 dp). On narrow (portrait) screens the menu headers narrow so all six stay reachable, and open windows are moved back on screen when the phone rotates.
+The controls hide again when a key is pressed. The UI is laid out for the original's 1024×768 window and scales with it, but on touch screens it never shrinks below 1 unit per dp, and menus, lists and tabs switch to finger-sized rows (32/30 dp). On narrow (portrait) screens the menu headers narrow so all six stay reachable, and open windows are moved back on screen when the phone rotates.
 
 **Menus** — *File* (Connect, Exit) · *Edit* (Duplicate) · *Settings* (Grid colours) · *View* (3d, Front, Back, Left, Right, Top, Bottom, HoloGrid, Wireframe, Inner Grid) · *Scene* (New, Save, Open, Add World Force) · *Model* (Load, Unload).
 
@@ -123,6 +123,9 @@ src/physics/      forces and point-mass nodes                  assets/data/ bund
 Original module → port: `adt` (custom string/list/hash containers) → Rust std · `math` → `glam` + `src/math.rs` · `win32` (window, DirectInput, timing) → Bevy · `holodeck` → `lib/view/input/grid` · `objects` → `src/objects` · `ui3d` → `src/ui3d` (rebuilt on `bevy_ui`) · `net` → `src/net` · `physics` → `src/physics`. Not ported: the C# `Server` and `packer` tools and the 3ds converter (kept in `cpp/`; the packer's format spec is implemented by `src/objects/format.rs`).
 
 ## Differences from the original
+
+**The look is unchanged.** Windows, title tabs, close buttons, buttons, text boxes, list boxes, menus, the mouse cursor and the on-screen text are drawn with the original's shapes, colours and sizes (from `cpp/ui3d/*.cpp`), and every dialog keeps its original size, position, controls and captions — including quirks like button captions wider than their buttons and "Backround". Two unavoidable substitutions: the Windows bitmap font (18px bold Courier) is replaced by Liberation Mono Bold, which is metric-compatible with Courier and freely licensed ([licence](assets/fonts/LiberationMono-LICENSE.txt)); and on touch screens menu and list rows are taller so a finger can hit them.
+
 
 Fixed, on purpose:
 
