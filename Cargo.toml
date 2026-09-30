@@ -76,6 +76,9 @@ resources = "assets/android-res"
 [package.metadata.android.application]
 icon = "@mipmap/ic_launcher"
 label = "Holodeck"
+# Fullscreen: without it the status bar sits over the top of the game, where
+# the menu tab is. (The Gradle path hides it from MainActivity.java instead.)
+theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
 
 [package.metadata.android.signing.release]
 path = "/var/home/maxfridbe/.android/debug.keystore"
