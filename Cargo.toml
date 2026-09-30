@@ -1,6 +1,6 @@
 [package]
 name = "holodeck"
-version = "26.9.30+03"
+version = "26.9.30+04"
 edition = "2024"
 
 [dependencies]
