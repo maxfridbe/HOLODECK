@@ -146,6 +146,8 @@ pub struct ListBox {
     pub selected: Option<usize>,
     pub offset: usize,
     pub rows: usize,
+    /// Height of each row in UI units.
+    pub row_height: f32,
     /// Double-click does nothing (used for the applied-forces list).
     pub click_lock: bool,
     /// Action fired by a double click.
@@ -155,7 +157,13 @@ pub struct ListBox {
 
 impl ListBox {
     pub fn new(rows: usize) -> Self {
-        Self { rows, ..default() }
+        Self { rows, row_height: theme::ROW_HEIGHT, ..default() }
+    }
+
+    /// As many rows as fit in `height`, finger-sized on touch screens.
+    pub fn fitting(height: f32, touch: bool) -> Self {
+        let row_height = if touch { theme::TOUCH_ROW_HEIGHT } else { theme::ROW_HEIGHT };
+        Self { rows: ((height - 4.0) / row_height).floor().max(1.0) as usize, row_height, ..default() }
     }
 
     pub fn selected_item(&self) -> Option<&str> {
@@ -212,6 +220,7 @@ impl Plugin for WidgetsPlugin {
                 list_scroll,
                 refresh_text_boxes,
                 refresh_lists,
+                refit_windows,
             )
                 .chain(),
         );
@@ -232,14 +241,16 @@ pub struct WindowSpec<'a> {
 pub fn spawn_window(commands: &mut Commands, camera: Entity, ui: &mut UiState, spec: WindowSpec) -> (Entity, Entity) {
     ui.next_z += 1;
     let z = 100 + ui.next_z;
+    let menu_tab = if ui.touch_mode { Vec2::new(theme::TOUCH_MENU_TAB_WIDTH, theme::TOUCH_MENU_HEIGHT) } else { Vec2::new(theme::MENU_TAB_WIDTH, theme::MENU_HEIGHT) };
+    let pos = fit_on_screen(spec.pos, spec.size, ui.screen, menu_tab);
     let window = commands
         .spawn((
             Window3d { kind: spec.kind, default_action: spec.default_action, cancel_action: spec.cancel_action },
             UiRoot,
             Node {
                 position_type: PositionType::Absolute,
-                left: Val::Px(spec.pos.x),
-                top: Val::Px(spec.pos.y),
+                left: Val::Px(pos.x),
+                top: Val::Px(pos.y),
                 width: Val::Px(spec.size.x),
                 height: Val::Px(spec.size.y),
                 border: UiRect::all(Val::Px(2.0)),
@@ -286,6 +297,20 @@ pub fn spawn_window(commands: &mut Commands, camera: Entity, ui: &mut UiState, s
     let close = spawn_button(commands, "X", Action::CloseWindow, Vec2::new(28.0, theme::TITLE_HEIGHT - 4.0), Vec2::new(spec.size.x - 34.0, 0.0));
     commands.entity(window).add_children(&[content, title_bar, close]);
     (window, content)
+}
+
+/// Moves a window so as much of it as possible is on screen (the title bar
+/// always is, so it can be dragged), and out from under the menu tab in the
+/// top-left corner.
+pub fn fit_on_screen(pos: Vec2, size: Vec2, screen: Vec2, menu_tab: Vec2) -> Vec2 {
+    if screen.cmple(Vec2::ZERO).any() {
+        return pos;
+    }
+    let mut pos = pos.min(screen - size).max(Vec2::ZERO);
+    if pos.y < menu_tab.y && pos.x < menu_tab.x {
+        pos.x = menu_tab.x.min((screen.x - size.x).max(0.0));
+    }
+    pos
 }
 
 pub fn spawn_label(commands: &mut Commands, parent: Entity, text: &str, pos: Vec2) -> Entity {
@@ -375,7 +400,7 @@ pub fn add_read_only(commands: &mut Commands, parent: Entity, text: &str, size: 
 }
 
 pub fn spawn_list_box(commands: &mut Commands, parent: Entity, list: ListBox, size: Vec2, pos: Vec2) -> Entity {
-    let rows = list.rows;
+    let (rows, row_height) = (list.rows, list.row_height);
     let id = commands
         .spawn((
             list,
@@ -398,7 +423,13 @@ pub fn spawn_list_box(commands: &mut Commands, parent: Entity, list: ListBox, si
                 b.spawn((
                     ListRow(row),
                     Interaction::default(),
-                    Node { height: Val::Px(theme::ROW_HEIGHT), width: Val::Percent(100.0), padding: UiRect::horizontal(Val::Px(4.0)), ..default() },
+                    Node {
+                        height: Val::Px(row_height),
+                        width: Val::Percent(100.0),
+                        padding: UiRect::horizontal(Val::Px(4.0)),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
                     BackgroundColor(Color::NONE),
                 ))
                 .with_children(|r| {
@@ -492,6 +523,24 @@ fn button_clicks(
     }
     for (entity, action) in fired.drain(..) {
         actions.send(UiAction { action, window: owning_window(entity, &parents, &windows) });
+    }
+}
+
+/// Keeps windows on screen when the screen changes size (window resize,
+/// phone rotation, touch mode changing the UI scale).
+fn refit_windows(ui: Res<UiState>, mut last: Local<Vec2>, mut windows: Query<&mut Node, With<Window3d>>) {
+    if *last == ui.screen {
+        return;
+    }
+    *last = ui.screen;
+    let menu_tab = if ui.touch_mode { Vec2::new(theme::TOUCH_MENU_TAB_WIDTH, theme::TOUCH_MENU_HEIGHT) } else { Vec2::new(theme::MENU_TAB_WIDTH, theme::MENU_HEIGHT) };
+    for mut node in &mut windows {
+        let (Val::Px(x), Val::Px(y), Val::Px(w), Val::Px(h)) = (node.left, node.top, node.width, node.height) else { continue };
+        let fitted = fit_on_screen(Vec2::new(x, y), Vec2::new(w, h), ui.screen, menu_tab);
+        if fitted != Vec2::new(x, y) {
+            node.left = Val::Px(fitted.x);
+            node.top = Val::Px(fitted.y);
+        }
     }
 }
 
@@ -746,6 +795,27 @@ mod tests {
         // A slow second click does not count.
         assert!(!list.click(0, 3.0));
         assert!(!list.click(0, 6.0));
+    }
+
+    #[test]
+    fn touch_lists_have_finger_sized_rows() {
+        let desk = ListBox::fitting(280.0, false);
+        let touch = ListBox::fitting(280.0, true);
+        assert_eq!(desk.row_height, theme::ROW_HEIGHT);
+        assert!(touch.row_height >= 30.0);
+        assert!(touch.rows < desk.rows && touch.rows as f32 * touch.row_height <= 280.0);
+    }
+
+    #[test]
+    fn windows_are_moved_onto_the_screen() {
+        let phone = Vec2::new(915.0, 412.0);
+        // The 400-tall file dialog at (50, 50) would hang off the bottom.
+        // ...and is slid right so the menu tab does not cover its title.
+        let tab = Vec2::new(96.0, 32.0);
+        assert_eq!(fit_on_screen(Vec2::new(50.0, 50.0), Vec2::new(350.0, 400.0), phone, tab), Vec2::new(96.0, 12.0));
+        // Taller than the screen: pinned to the top so the title bar shows.
+        assert_eq!(fit_on_screen(Vec2::new(75.0, 75.0), Vec2::new(600.0, 550.0), phone, tab).y, 0.0);
+        assert_eq!(fit_on_screen(Vec2::new(10.0, 60.0), Vec2::new(100.0, 100.0), phone, tab), Vec2::new(10.0, 60.0));
     }
 
     #[test]

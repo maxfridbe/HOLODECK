@@ -596,7 +596,8 @@ pub fn context_menu_on_right_click(
         return;
     }
     let (Some(pointer), Ok(camera)) = (pointer.position.map(|p| p / scale.0), camera.get_single()) else { return };
-    if menu::in_menu_tab_area(pointer) {
+    let main_metrics = existing.iter().find(|(_, b)| !b.is_context).map_or_else(menu::MenuMetrics::default, |(_, b)| b.metrics);
+    if menu::in_menu_tab_area(pointer, main_metrics) {
         return;
     }
     for (entity, bar) in &existing {
@@ -612,7 +613,8 @@ pub fn context_menu_on_right_click(
         None => ContextTarget::Nothing,
     };
     let headers = menu::context_menu(target);
-    let at = windows.get_single().map_or(pointer, |w| menu::keep_on_screen(pointer, &headers, Vec2::new(w.width(), w.height()) / scale.0));
+    let metrics = menu::MenuMetrics::new(ui.touch_mode, ui.screen.x - pointer.x, headers.len());
+    let at = windows.get_single().map_or(pointer, |w| menu::keep_on_screen(pointer, &headers, Vec2::new(w.width(), w.height()) / scale.0, metrics));
     menu::spawn_context_menu(&mut commands, camera, at, headers);
 }
 

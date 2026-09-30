@@ -27,3 +27,13 @@ pub const TITLE_HEIGHT: f32 = 28.0;
 pub const ROW_HEIGHT: f32 = 16.0;
 pub const MENU_WIDTH: f32 = 128.0;
 pub const MENU_HEIGHT: f32 = 20.0;
+/// Menu row height on touch screens: finger-sized, yet short enough that the
+/// 11-item View menu fits a 412dp-tall landscape phone.
+pub const TOUCH_MENU_HEIGHT: f32 = 32.0;
+/// List box row height on touch screens.
+pub const TOUCH_ROW_HEIGHT: f32 = 30.0;
+/// The collapsed menu tab.
+pub const MENU_TAB_WIDTH: f32 = 70.0;
+pub const TOUCH_MENU_TAB_WIDTH: f32 = 96.0;
+/// Narrowest a menu header may get on a narrow screen.
+pub const MIN_MENU_WIDTH: f32 = 64.0;

@@ -10,7 +10,7 @@ use bevy::ui::FocusPolicy;
 
 use super::actions::{Action, UiAction};
 use super::theme;
-use super::UiRoot;
+use super::{UiRoot, UiState};
 use crate::touch::Pointer;
 use crate::objects::manip::ManipKind;
 use crate::view::{MainCamera, ViewType};
@@ -64,8 +64,32 @@ pub struct MenuHeader {
     pub items: Vec<MenuItem>,
 }
 
+/// Sizes of a menu bar, in UI units. Taller rows on touch screens; headers
+/// narrow down so the whole bar fits on narrow (portrait) screens.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MenuMetrics {
+    pub row: f32,
+    pub header: f32,
+    pub tab: f32,
+}
+
+impl Default for MenuMetrics {
+    fn default() -> Self {
+        Self { row: theme::MENU_HEIGHT, header: theme::MENU_WIDTH, tab: theme::MENU_TAB_WIDTH }
+    }
+}
+
+impl MenuMetrics {
+    pub fn new(touch: bool, available_width: f32, headers: usize) -> Self {
+        let (row, tab) = if touch { (theme::TOUCH_MENU_HEIGHT, theme::TOUCH_MENU_TAB_WIDTH) } else { (theme::MENU_HEIGHT, theme::MENU_TAB_WIDTH) };
+        let header = (available_width / headers.max(1) as f32).clamp(theme::MIN_MENU_WIDTH, theme::MENU_WIDTH);
+        Self { row, header, tab }
+    }
+}
+
 #[derive(Component, Debug)]
 pub struct MenuBar {
+    pub metrics: MenuMetrics,
     pub headers: Vec<MenuHeader>,
     pub state: MenuState,
     /// Width revealed so far, in pixels.
@@ -84,9 +108,10 @@ pub struct MenuBar {
 impl MenuBar {
     fn new(headers: Vec<MenuHeader>, origin: Vec2, is_context: bool) -> Self {
         Self {
+            metrics: MenuMetrics::default(),
             headers,
             state: if is_context { MenuState::Engaging } else { MenuState::Min },
-            draw_place: if is_context { 0.0 } else { 70.0 },
+            draw_place: if is_context { 0.0 } else { theme::MENU_TAB_WIDTH },
             origin,
             is_context,
             // A context menu shows its first header's items straight away.
@@ -103,7 +128,7 @@ impl MenuBar {
     }
 
     fn full_width(&self) -> f32 {
-        theme::MENU_WIDTH * self.headers.len() as f32
+        self.metrics.header * self.headers.len() as f32
     }
 
     pub fn item_mut(&mut self, caption: &str) -> Option<&mut MenuItem> {
@@ -272,10 +297,19 @@ fn spawn_bar(commands: &mut Commands, camera: Entity, bar: MenuBar) {
     ));
 }
 
-fn animate_menus(time: Res<Time>, mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, &mut Node)>) {
+fn animate_menus(time: Res<Time>, ui: Res<UiState>, mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, &mut Node)>) {
     for (entity, mut bar, mut node) in &mut bars {
+        let metrics = MenuMetrics::new(ui.touch_mode, ui.screen.x - bar.origin.x, bar.headers.len());
+        if bar.metrics != metrics {
+            bar.metrics = metrics;
+            bar.revision += 1;
+            if bar.state == MenuState::On {
+                bar.draw_place = bar.full_width();
+            }
+        }
         bar.advance(time.delta_secs());
-        node.width = Val::Px(if bar.state == MenuState::Min { 70.0 } else { bar.draw_place });
+        node.width = Val::Px(if bar.state == MenuState::Min { bar.metrics.tab } else { bar.draw_place });
+        node.height = Val::Px(bar.metrics.row);
         if bar.state == MenuState::Off && bar.is_context {
             commands.entity(entity).despawn_recursive();
         }
@@ -366,13 +400,14 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
         }
 
         let font = TextFont { font_size: theme::FONT_SIZE, ..default() };
+        let m = bar.metrics;
         commands.entity(entity).with_children(|root| {
             if shape == MenuState::Min {
                 root.spawn((
                     MinTab,
                     Interaction::default(),
                     FocusPolicy::Block,
-                    Node { width: Val::Px(70.0), height: Val::Px(theme::MENU_HEIGHT), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
+                    Node { width: Val::Px(m.tab), height: Val::Px(m.row), justify_content: JustifyContent::Center, align_items: AlignItems::Center, ..default() },
                     BackgroundColor(theme::MENU),
                     BorderRadius::bottom_right(Val::Px(6.0)),
                 ))
@@ -390,18 +425,26 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
                     FocusPolicy::Block,
                     Node {
                         position_type: PositionType::Absolute,
-                        left: Val::Px(h as f32 * theme::MENU_WIDTH),
+                        left: Val::Px(h as f32 * m.header),
                         top: Val::Px(0.0),
-                        width: Val::Px(theme::MENU_WIDTH),
-                        height: Val::Px(theme::MENU_HEIGHT),
+                        width: Val::Px(m.header),
+                        height: Val::Px(m.row),
+                        overflow: Overflow::clip(),
                         align_items: AlignItems::Center,
-                        padding: UiRect::horizontal(Val::Px(8.0)),
+                        // Tighter on narrow screens so captions still fit.
+                        padding: UiRect::horizontal(Val::Px(if m.header < 100.0 { 3.0 } else { 8.0 })),
                         ..default()
                     },
                     BackgroundColor(if is_open { theme::MENU_HOVER } else { theme::MENU }),
                 ))
                 .with_children(|n| {
-                    n.spawn((Text::new(header.caption.clone()), font.clone(), TextColor(if is_open { theme::MENU_TEXT_HOVER } else { theme::TEXT })));
+                    n.spawn((
+                        Text::new(header.caption.clone()),
+                        // About 9 px per character at full size; shrink to fit narrow headers.
+                        TextFont { font_size: theme::FONT_SIZE.min((m.header - 6.0) / header.caption.chars().count().max(1) as f32 / 0.6), ..default() },
+                        TextColor(if is_open { theme::MENU_TEXT_HOVER } else { theme::TEXT }),
+                        TextLayout::new_with_no_wrap(),
+                    ));
                 });
 
                 if !is_open {
@@ -412,8 +455,8 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
                 let drop_width = theme::MENU_WIDTH.max(widest as f32 * 9.0 + 24.0);
                 root.spawn(Node {
                     position_type: PositionType::Absolute,
-                    left: Val::Px(h as f32 * theme::MENU_WIDTH),
-                    top: Val::Px(theme::MENU_HEIGHT),
+                    left: Val::Px(h as f32 * m.header),
+                    top: Val::Px(m.row),
                     width: Val::Px(drop_width),
                     flex_direction: FlexDirection::Column,
                     ..default()
@@ -424,7 +467,7 @@ fn rebuild_menus(mut commands: Commands, mut bars: Query<(Entity, &mut MenuBar, 
                             MenuNode { header: h, item: Some(i), enabled: entry.enabled },
                             Interaction::default(),
                             FocusPolicy::Block,
-                            Node { height: Val::Px(theme::MENU_HEIGHT), align_items: AlignItems::Center, padding: UiRect::horizontal(Val::Px(8.0)), ..default() },
+                            Node { height: Val::Px(m.row), align_items: AlignItems::Center, padding: UiRect::horizontal(Val::Px(8.0)), ..default() },
                             BackgroundColor(theme::MENU),
                         ))
                         .with_children(|n| {
@@ -488,16 +531,16 @@ pub fn toggle_main_menu(bars: &mut Query<&mut MenuBar>) {
 }
 
 /// Moves a menu's origin so the bar and its tallest dropdown fit in the window.
-pub fn keep_on_screen(origin: Vec2, headers: &[MenuHeader], window: Vec2) -> Vec2 {
-    let width = theme::MENU_WIDTH * headers.len() as f32 + 60.0;
+pub fn keep_on_screen(origin: Vec2, headers: &[MenuHeader], window: Vec2, metrics: MenuMetrics) -> Vec2 {
+    let width = metrics.header * headers.len() as f32 + 60.0;
     let rows = headers.iter().map(|h| h.items.len()).max().unwrap_or(0) + 1;
-    let height = theme::MENU_HEIGHT * rows as f32;
+    let height = metrics.row * rows as f32;
     Vec2::new(origin.x.min(window.x - width).max(0.0), origin.y.min(window.y - height).max(0.0))
 }
 
 /// Whether the context-menu spot is reserved for the main menu's tab.
-pub fn in_menu_tab_area(pos: Vec2) -> bool {
-    pos.x < theme::MENU_WIDTH && pos.y < theme::MENU_HEIGHT
+pub fn in_menu_tab_area(pos: Vec2, metrics: MenuMetrics) -> bool {
+    pos.x < metrics.tab.max(metrics.header) && pos.y < metrics.row
 }
 
 
@@ -575,10 +618,26 @@ mod tests {
     fn context_menus_are_kept_inside_the_window() {
         let headers = context_menu(ContextTarget::Object);
         let window = Vec2::new(1280.0, 720.0);
-        let at = keep_on_screen(Vec2::new(700.0, 500.0), &headers, window);
+        let m = MenuMetrics::default();
+        let at = keep_on_screen(Vec2::new(700.0, 500.0), &headers, window, m);
         assert!(at.y + theme::MENU_HEIGHT * 11.0 <= 720.0);
-        assert_eq!(keep_on_screen(Vec2::new(10.0, 10.0), &headers, window), Vec2::new(10.0, 10.0));
-        assert!(keep_on_screen(Vec2::new(1270.0, 10.0), &headers, window).x < 1270.0);
+        assert_eq!(keep_on_screen(Vec2::new(10.0, 10.0), &headers, window, m), Vec2::new(10.0, 10.0));
+        assert!(keep_on_screen(Vec2::new(1270.0, 10.0), &headers, window, m).x < 1270.0);
+    }
+
+    #[test]
+    fn touch_menus_are_finger_sized_and_still_fit_a_phone() {
+        let phone = Vec2::new(915.0, 412.0);
+        let m = MenuMetrics::new(true, phone.x, 6);
+        assert!(m.row >= 32.0);
+        // The whole bar fits across, and the View menu (header + 11 items) fits down.
+        assert!(m.header * 6.0 <= phone.x);
+        assert!(m.row * 12.0 <= phone.y);
+        // Portrait: headers narrow so all six are reachable.
+        let portrait = MenuMetrics::new(true, 412.0, 6);
+        assert!(portrait.header * 6.0 <= 412.0);
+        // Desktop keeps the original compact look.
+        assert_eq!(MenuMetrics::new(false, 1280.0, 6), MenuMetrics::default());
     }
 
     #[test]

@@ -39,7 +39,10 @@ impl Plugin for AxisPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<AxisGizmos>()
             .add_systems(Startup, spawn.after(crate::spawn_main_camera))
-            .add_systems(Update, (place_camera, draw, place_labels).chain());
+            .add_systems(Update, (draw, place_labels))
+            // After everything that can resize the window this frame, and after
+            // cameras have picked up the new target size.
+            .add_systems(PostUpdate, place_camera.after(bevy::render::camera::CameraUpdateSystem));
     }
 }
 
@@ -85,17 +88,33 @@ fn place_camera(
     mut axis: Query<(&mut Camera, &mut Transform), With<AxisCamera>>,
 ) {
     let (Ok(window), Ok(main), Ok((mut camera, mut transform))) = (windows.get_single(), main.get_single(), axis.get_single_mut()) else { return };
-    let scale = window.scale_factor() * ui_scale.0;
-    let size = (SIZE * scale) as u32;
-    let position = UVec2::new((MARGIN * scale) as u32, window.physical_height().saturating_sub(size + (MARGIN * scale) as u32));
-    if window.physical_width() < size || window.physical_height() < size {
-        camera.viewport = None;
-        camera.is_active = false;
-        return;
+    // The viewport must lie inside the render target, which is the window
+    // as it will be drawn this frame. Take the smaller of the window and the
+    // camera's own idea of its target, so a resize (window, browser, phone
+    // rotation) can never leave the viewport hanging off the edge.
+    let target = UVec2::new(window.physical_width(), window.physical_height());
+    let target = camera.physical_target_size().map_or(target, |t| t.min(target));
+    match inset_viewport(target, window.scale_factor() * ui_scale.0) {
+        Some(viewport) => {
+            camera.is_active = true;
+            camera.viewport = Some(viewport);
+        }
+        None => {
+            camera.is_active = false;
+            camera.viewport = None;
+        }
     }
-    camera.is_active = true;
-    camera.viewport = Some(Viewport { physical_position: position, physical_size: UVec2::splat(size), ..default() });
     *transform = Transform::from_translation(main.rotation * Vec3::new(0.0, 0.0, 50.0)).with_rotation(main.rotation);
+}
+
+/// The bottom-left square for the indicator, or `None` if it does not fit.
+fn inset_viewport(target: UVec2, scale: f32) -> Option<Viewport> {
+    let size = (SIZE * scale).round() as u32;
+    let margin = (MARGIN * scale).round() as u32;
+    if size == 0 || target.x < size + margin || target.y < size + margin {
+        return None;
+    }
+    Some(Viewport { physical_position: UVec2::new(margin, target.y - size - margin), physical_size: UVec2::splat(size), ..default() })
 }
 
 fn draw(mut gizmos: Gizmos<AxisGizmos>) {
@@ -125,5 +144,21 @@ fn place_labels(
             }
             _ => *visibility = Visibility::Hidden,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_inset_always_lies_inside_the_target() {
+        for (w, h, scale) in [(1280, 720, 1.0), (915, 412, 1.0), (2400, 1080, 2.625), (60, 60, 1.0), (5000, 3000, 4.0)] {
+            if let Some(v) = inset_viewport(UVec2::new(w, h), scale) {
+                let end = v.physical_position + v.physical_size;
+                assert!(end.x <= w && end.y <= h, "{w}x{h}@{scale}: {v:?}");
+            }
+        }
+        assert!(inset_viewport(UVec2::new(40, 40), 1.0).is_none());
     }
 }

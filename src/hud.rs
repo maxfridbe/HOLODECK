@@ -64,7 +64,7 @@ fn spawn(mut commands: Commands, camera: Query<Entity, With<MainCamera>>) {
     ));
     commands.spawn((
         HintText,
-        Text::new("WASD fly   drag / Ctrl+mouse look   wheel zoom   Space menu   right-click / long-press context menu   click / tap select   G grid   Q quit"),
+        Text::new(DESKTOP_HINT),
         TextFont { font_size: 13.0, ..default() },
         TextColor(Color::srgba(0.75, 0.75, 0.75, 0.8)),
         Node { position_type: PositionType::Absolute, left: Val::Px(12.0), bottom: Val::Px(8.0), ..default() },
@@ -73,15 +73,19 @@ fn spawn(mut commands: Commands, camera: Query<Entity, With<MainCamera>>) {
     ));
 }
 
+const DESKTOP_HINT: &str = "WASD fly   drag / Ctrl+mouse look   wheel zoom   Space menu   right-click context menu   click select   G grid   Q quit";
+const TOUCH_HINT: &str = "tap select   drag look   long-press menu";
+
 fn update(
     time: Res<Time>,
+    ui: Res<crate::ui3d::UiState>,
     mut stats: ResMut<FrameStats>,
     settings: Res<Settings>,
     cameras: Res<CameraManager>,
     view: Res<ViewPort>,
     mut fps: Query<&mut Text, (With<FpsText>, Without<ControlText>)>,
     mut control: Query<&mut Text, (With<ControlText>, Without<FpsText>)>,
-    mut hint: Query<&mut Visibility, With<HintText>>,
+    mut hint: Query<(&mut Visibility, &mut Text, &mut Node), (With<HintText>, Without<FpsText>, Without<ControlText>)>,
 ) {
     stats.tick(time.delta_secs());
     if let Ok(mut text) = fps.get_single_mut() {
@@ -98,8 +102,19 @@ fn update(
             _ => String::new(),
         };
     }
-    if let Ok(mut visibility) = hint.get_single_mut() {
-        *visibility = if controlling { Visibility::Hidden } else { Visibility::Inherited };
+    if let Ok((mut visibility, mut text, mut node)) = hint.get_single_mut() {
+        // On narrow touch screens there is no room between the stick and buttons.
+        let room = !ui.touch_mode || ui.screen.x >= 640.0;
+        *visibility = if controlling || !room { Visibility::Hidden } else { Visibility::Inherited };
+        // On touch screens the bottom corners belong to the stick and
+        // buttons, so the (short) hint sits between them.
+        let (wanted, left) = if ui.touch_mode { (TOUCH_HINT, Val::Px(190.0)) } else { (DESKTOP_HINT, Val::Px(12.0)) };
+        if text.0 != wanted {
+            text.0 = wanted.to_owned();
+        }
+        if node.left != left {
+            node.left = left;
+        }
     }
 }
 

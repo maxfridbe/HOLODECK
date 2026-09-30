@@ -64,7 +64,7 @@ pub fn file_dialog(ctx: &mut Ctx, title: &str, purpose: Command, ok_caption: &st
     path_box.set_text(filebrowser::path_caption(browser.dir.as_deref()));
     spawn_text_box(ctx.commands, content, Some(Field("path")), path_box, Vec2::new(300.0, 18.0), Vec2::new(25.0, 32.0));
 
-    let mut list = ListBox::new(17);
+    let mut list = ListBox::fitting(280.0, ctx.ui.touch_mode);
     list.activate = Some(Action::FileOk);
     filebrowser::populate(&browser, &mut list);
     let list_entity = spawn_list_box(ctx.commands, content, list, Vec2::new(300.0, 280.0), Vec2::new(25.0, 55.0));
@@ -152,13 +152,13 @@ pub fn attach_physics(ctx: &mut Ctx, available: Vec<String>, applied: Vec<String
     add_read_only(ctx.commands, content, "Available forces", Vec2::new(200.0, 18.0), Vec2::new(30.0, 45.0));
     add_read_only(ctx.commands, content, "Applied forces", Vec2::new(200.0, 18.0), Vec2::new(375.0, 45.0));
 
-    let mut left = ListBox::new(21);
+    let mut left = ListBox::fitting(350.0, ctx.ui.touch_mode);
     left.items = available;
     left.activate = Some(Action::AddForce);
     let left = spawn_list_box(ctx.commands, content, left, Vec2::new(200.0, 350.0), Vec2::new(30.0, 75.0));
     ctx.commands.entity(left).insert(Field("forces"));
 
-    let mut right = ListBox::new(21);
+    let mut right = ListBox::fitting(350.0, ctx.ui.touch_mode);
     right.items = applied;
     right.click_lock = true;
     let right = spawn_list_box(ctx.commands, content, right, Vec2::new(200.0, 350.0), Vec2::new(375.0, 75.0));

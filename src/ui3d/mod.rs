@@ -51,6 +51,10 @@ pub struct UiState {
     pub text_focus: Option<Entity>,
     /// The window on top.
     pub focused_window: Option<Entity>,
+    /// Touch controls are in use: size things for fingers.
+    pub touch_mode: bool,
+    /// Size of the window in UI units.
+    pub screen: Vec2,
     pub(crate) next_z: i32,
     pub(crate) drag: Option<widgets::WindowDrag>,
 }
@@ -83,11 +87,33 @@ pub fn ui_scale_for(window: Vec2) -> f32 {
     (window / REFERENCE_SIZE).min_element().clamp(0.5, 4.0)
 }
 
-fn scale_ui(windows: Query<&Window, With<bevy::window::PrimaryWindow>>, mut scale: ResMut<UiScale>) {
+/// On touch screens the UI never shrinks below 1 unit per dp: fingers do not
+/// get smaller with the screen.
+pub const TOUCH_MIN_SCALE: f32 = 1.0;
+
+pub fn ui_scale_for_input(window: Vec2, touch: bool) -> f32 {
+    let fit = ui_scale_for(window);
+    if touch { fit.max(TOUCH_MIN_SCALE) } else { fit }
+}
+
+fn scale_ui(
+    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    touch: Res<crate::touch::TouchControls>,
+    mut ui: ResMut<UiState>,
+    mut scale: ResMut<UiScale>,
+) {
     let Ok(window) = windows.get_single() else { return };
-    let wanted = ui_scale_for(Vec2::new(window.width(), window.height()));
+    let size = Vec2::new(window.width(), window.height());
+    let wanted = ui_scale_for_input(size, touch.visible);
     if (scale.0 - wanted).abs() > 1e-3 {
         scale.0 = wanted;
+    }
+    if ui.touch_mode != touch.visible {
+        ui.touch_mode = touch.visible;
+    }
+    let screen = size / wanted;
+    if ui.screen != screen {
+        ui.screen = screen;
     }
 }
 
@@ -120,5 +146,15 @@ mod tests {
         // Limited by the tighter dimension, so everything still fits.
         assert_eq!(ui_scale_for(Vec2::new(2560.0, 720.0)), 1.0);
         assert_eq!(ui_scale_for(Vec2::new(200.0, 100.0)), 0.5);
+    }
+
+    #[test]
+    fn touch_screens_never_shrink_the_ui() {
+        // A landscape phone: 915x412 dp would otherwise scale to 0.57.
+        let phone = Vec2::new(915.0, 412.0);
+        assert!(ui_scale_for_input(phone, false) < 0.6);
+        assert_eq!(ui_scale_for_input(phone, true), 1.0);
+        // Big touch screens still scale up.
+        assert_eq!(ui_scale_for_input(Vec2::new(2560.0, 1440.0), true), 2.0);
     }
 }

@@ -51,7 +51,7 @@ Start with **Space** to open the menu, then **Scene → Open** and pick `demo.wo
 | Drag a handle | Move / scale / rotate the selected object |
 | **MENU** / **GRID** buttons | Show the menu bar / toggle the grid |
 
-The controls hide again when a key is pressed. The whole UI scales with the window (laid out for 1280×720), so it stays the same size relative to the screen on a phone or a 4K monitor.
+The controls hide again when a key is pressed. The UI is laid out for 1280×720 and scales with the window, but on touch screens it never shrinks below 1 unit per dp, and menus, lists and tabs switch to finger-sized rows (32/30 dp). On narrow (portrait) screens the menu headers narrow so all six stay reachable, and open windows are moved back on screen when the phone rotates.
 
 **Menus** — *File* (Connect, Exit) · *Edit* (Duplicate) · *Settings* (Grid colours) · *View* (3d, Front, Back, Left, Right, Top, Bottom, HoloGrid, Wireframe, Inner Grid) · *Scene* (New, Save, Open, Add World Force) · *Model* (Load, Unload).
 
