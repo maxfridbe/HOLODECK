@@ -138,11 +138,11 @@ impl ViewPort {
                 if let Some((pos, theta, phi)) = self.saved_perspective.take() {
                     (rig.pos, rig.theta, rig.phi) = (pos, theta, phi);
                 }
-                settings.grid.set_spacing(3, 100);
+                settings.grid.set_spacing(0.25, 10.0);
             }
             Some(i) => {
                 rig.pos = self.ortho_pos[i];
-                settings.grid.set_spacing(if matches!(view, ViewType::Top | ViewType::Bottom) { 1 } else { 2 }, 64);
+                settings.grid.set_spacing(if matches!(view, ViewType::Top | ViewType::Bottom) { 0.1 } else { 0.15 }, 10.0);
             }
         }
         rig.up = Self::up_vector(view);
@@ -288,9 +288,9 @@ mod tests {
     fn grid_spacing_follows_the_view() {
         let (mut view, mut rig, mut settings) = setup();
         view.set_view(ViewType::Top, &mut rig, &mut settings);
-        assert_eq!((settings.grid.thickness, settings.grid.spacing), (1, 64));
+        assert_eq!((settings.grid.thickness, settings.grid.spacing), (0.1, 10.0));
         view.set_view(ViewType::Perspective, &mut rig, &mut settings);
-        assert_eq!((settings.grid.thickness, settings.grid.spacing), (3, 100));
+        assert_eq!((settings.grid.thickness, settings.grid.spacing), (0.25, 10.0));
     }
 
     #[test]

@@ -65,20 +65,14 @@ impl CameraRig {
     }
 }
 
-/// Mouse counts to radians, with a gentler response to small movements so
-/// slow motion allows fine aiming.
+/// Radians of turn per pixel of mouse or finger movement (about 0.2 degrees).
+///
+/// The original divided raw DirectInput counts by a speed-dependent table,
+/// which with pixel deltas turned up to a radian in a single frame.
+pub const LOOK_RADIANS_PER_PIXEL: f64 = 0.0035;
+
 pub fn mouse_look_step(rel: f32) -> f64 {
-    let magnitude = rel.abs();
-    let divisor = match magnitude {
-        m if m <= 1.0 => 1000.0,
-        m if m <= 2.0 => 800.0,
-        m if m <= 6.0 => 500.0,
-        m if m <= 8.0 => 400.0,
-        m if m <= 16.0 => 300.0,
-        m if m <= 32.0 => 200.0,
-        _ => 100.0,
-    };
-    f64::from(rel) / divisor
+    f64::from(rel) * LOOK_RADIANS_PER_PIXEL
 }
 
 /// All cameras. `world` is the one the user flies around with; the others
@@ -94,8 +88,10 @@ pub struct CameraManager {
 
 impl Default for CameraManager {
     fn default() -> Self {
-        // The user starts at (10, 0, 10) looking along +Z.
-        let world_camera = CameraRig::new("World", Vec3::new(10.0, 0.0, 10.0));
+        // Standing at eye height in front of the origin, where scenes are
+        // built, looking at it along +Z.
+        let grid = crate::settings::GridSettings::default();
+        let world_camera = CameraRig::new("World", Vec3::new(0.0, grid.eye_height(), -60.0));
         Self { cameras: vec![world_camera], active: None, world: 0 }
     }
 }
@@ -149,9 +145,10 @@ mod tests {
     }
 
     #[test]
-    fn small_movements_are_damped() {
-        // Per-count response grows with speed.
-        assert!(mouse_look_step(1.0) / 1.0 < mouse_look_step(40.0) / 40.0);
+    fn look_speed_is_proportional_to_movement() {
+        // Linear: a fast swipe turns proportionally, not explosively.
+        assert!((mouse_look_step(100.0) - 100.0 * mouse_look_step(1.0)).abs() < 1e-12);
+        assert!(mouse_look_step(100.0) < 0.5, "a 100px swipe is well under 30 degrees");
         assert_eq!(mouse_look_step(-4.0), -mouse_look_step(4.0));
     }
 

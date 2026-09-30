@@ -635,7 +635,7 @@ fn list_scroll(
     window_query: Query<&Window3d>,
     mut lists: Query<(Entity, &mut ListBox)>,
 ) {
-    let notches: f32 = wheel.read().map(|w| w.y).sum();
+    let notches = crate::input::wheel_notches(&mut wheel);
     if notches == 0.0 {
         return;
     }

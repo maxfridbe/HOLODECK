@@ -24,7 +24,7 @@ Start with **Space** to open the menu, then **Scene → Open** and pick `demo.wo
 
 | Input | Action |
 |-------|--------|
-| **W A S D** | Fly (speed ramps up while held) |
+| **W A S D** | Fly where you look: 15 units/s, ramping to 60 while held. You start at eye height and stay inside the holodeck, never lower than 2 units above the floor |
 | Left-drag on empty space | Look around (also one-finger drag on touch screens) |
 | **Ctrl + mouse** | Look around without clicking (desktop captures the pointer) |
 | Mouse wheel | Field of view (zoom in orthographic views) |
@@ -120,6 +120,10 @@ Original module → port: `adt` (custom string/list/hash containers) → Rust st
 ## Differences from the original
 
 Fixed, on purpose:
+
+* **Scale.** The original room was 1000 units a side with grid lines every 100 units and the floor 500 units below the objects, while models are 2–25 units across — everything floated in the middle of a vast empty box. The room is now sized to the content (600 × 600, 200 high, lines every 10 units), the floor is where objects rest (y = −5), and you start at eye height on it.
+* **Speeds.** Flying started from a standstill and crept up at 1 unit/s² to 120 units/s; now 15 → 60 units/s. Mouse/finger look turns a fixed 0.2° per pixel (the original's table, tuned for raw DirectInput counts, turned up to a radian per frame on a fast swipe). The wheel is normalised, so a browser's pixel scrolling no longer slams the field of view to its limit.
+* **You can't leave the grid** (or sink into the floor); orthographic views still look at the room from outside.
 
 * **Bounding boxes in negative space.** The C++ seeded the "max" corner with `FLT_MIN` (the smallest *positive* float), so any box lying in negative space got a max of ~0 — the manipulator "grabbed the edge of the box at the origin". Boxes are now fitted correctly (regression-tested).
 * **Manipulator size.** Handles were sized from the *unscaled model-space* box, measured to the wrong point with a Manhattan distance, and the object's extent was multiplied by the view distance as well — hence "excessively large", worst for the rotate tool. Now: distance is to the object's real world-space centre, only the handle geometry scales with distance, and rotate rings hug the object but are capped.

@@ -12,14 +12,12 @@ use crate::objects::model::visible_to_all;
 use crate::settings::{GridSettings, GridState, Settings};
 use crate::view::ViewPort;
 
-/// How far grid lines and axes extend from the origin.
-const REACH: f32 = 1000.0;
 
 #[derive(Component)]
 pub struct GridBody;
 
 #[derive(Resource, Default)]
-struct BuiltFor(Option<(i32, i32, i32, i32, i32, [u8; 3], [u8; 3])>);
+struct BuiltFor(Option<([u32; 5], [u8; 3], [u8; 3])>);
 
 pub struct GridPlugin;
 
@@ -36,10 +34,13 @@ fn quad(out: &mut Vec<[f32; 3]>, corners: [[f32; 3]; 4]) {
     out.extend([corners[0], corners[1], corners[2], corners[0], corners[2], corners[3]]);
 }
 
-/// Builds the box faces and the grid strips, centred on the origin.
+/// Builds the room: box faces and grid strips, centred horizontally with the
+/// floor at y = 0 (the entity is placed at the floor height).
 pub fn build_body_mesh(grid: &GridSettings) -> Mesh {
-    let (w, h, d) = (grid.width as f32, grid.height as f32, grid.depth as f32);
-    let (spacing, thick) = (grid.spacing.max(1) as usize, grid.thickness as f32);
+    let (w, h, d) = (grid.width, grid.height, grid.depth);
+    let (spacing, thick) = (grid.spacing.max(0.1), grid.thickness);
+    // Faces sit just outside the strips so the strips are never hidden.
+    let gap = (thick * 2.0).max(0.05);
     let back = grid.back_color().to_linear().to_f32_array();
     let line = grid.line_color().to_linear().to_f32_array();
 
@@ -53,20 +54,23 @@ pub fn build_body_mesh(grid: &GridSettings) -> Mesh {
         }
     };
 
-    // Faces sit one unit outside the strips so the strips are never hidden.
+    let (lo, wx, hy, dz) = (-gap, w + gap, h + gap, d + gap);
     let faces = vec![
-        [[-1., -1., -1.], [w + 1., -1., -1.], [w + 1., -1., d + 1.], [-1., -1., d + 1.]],
-        [[-1., -1., -1.], [w + 1., -1., -1.], [w + 1., h + 1., -1.], [-1., h + 1., -1.]],
-        [[-1., -1., d + 1.], [w + 1., -1., d + 1.], [w + 1., h + 1., d + 1.], [-1., h + 1., d + 1.]],
-        [[-1., -1., -1.], [-1., h + 1., -1.], [-1., h + 1., d + 1.], [-1., -1., d + 1.]],
-        [[w + 1., -1., -1.], [w + 1., h + 1., -1.], [w + 1., h + 1., d + 1.], [w + 1., -1., d + 1.]],
-        [[w + 1., h + 1., -1.], [w + 1., h + 1., d + 1.], [-1., h + 1., d + 1.], [-1., h + 1., -1.]],
+        [[lo, lo, lo], [wx, lo, lo], [wx, lo, dz], [lo, lo, dz]],
+        [[lo, lo, lo], [wx, lo, lo], [wx, hy, lo], [lo, hy, lo]],
+        [[lo, lo, dz], [wx, lo, dz], [wx, hy, dz], [lo, hy, dz]],
+        [[lo, lo, lo], [lo, hy, lo], [lo, hy, dz], [lo, lo, dz]],
+        [[wx, lo, lo], [wx, hy, lo], [wx, hy, dz], [wx, lo, dz]],
+        [[wx, hy, lo], [wx, hy, dz], [lo, hy, dz], [lo, hy, lo]],
     ];
     push(faces, back, &mut positions);
 
-    let steps = |extent: f32| (0..=extent as usize).step_by(spacing).map(|i| i as f32).collect::<Vec<_>>();
+    let steps = |extent: f32| {
+        let count = (extent / spacing).floor() as usize;
+        (0..=count).map(|i| i as f32 * spacing).collect::<Vec<_>>()
+    };
     let mut strips = Vec::new();
-    // Each plane gets strips along both of its axes.
+    // Each face of the room gets strips along both of its axes.
     for &y in &[0.0, h] {
         for x in steps(w) {
             strips.push([[x, y, 0.], [x, y, d], [x + thick, y, d], [x + thick, y, 0.]]);
@@ -93,8 +97,8 @@ pub fn build_body_mesh(grid: &GridSettings) -> Mesh {
     }
     push(strips, line, &mut positions);
 
-    let centre = Vec3::new(w, h, d) / 2.0;
-    let positions: Vec<[f32; 3]> = positions.into_iter().map(|p| (Vec3::from(p) - centre).to_array()).collect();
+    let offset = Vec3::new(w / 2.0, 0.0, d / 2.0);
+    let positions: Vec<[f32; 3]> = positions.into_iter().map(|p| (Vec3::from(p) - offset).to_array()).collect();
 
     Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
         .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
@@ -112,7 +116,7 @@ fn spawn_body(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>, mut mate
             cull_mode: None,
             ..default()
         })),
-        Transform::from_scale(Vec3::new(1.0, 0.0001, 1.0)),
+        Transform::from_xyz(0.0, settings.grid.floor, 0.0).with_scale(Vec3::new(1.0, 0.0001, 1.0)),
         Visibility::Hidden,
         visible_to_all(),
         // The body is huge; never cull it.
@@ -156,6 +160,8 @@ fn animate_grid(
         GridState::Off => false,
     };
     if let Ok((mut transform, mut visibility)) = body.get_single_mut() {
+        // Grows up from the floor.
+        transform.translation.y = grid.floor;
         transform.scale = Vec3::new(grid.scale, grid.dynamic_scale.max(0.0001), grid.scale);
         *visibility = if drawn { Visibility::Inherited } else { Visibility::Hidden };
     }
@@ -169,7 +175,7 @@ fn rebuild_body(
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     let g = &settings.grid;
-    let signature = (g.width, g.height, g.depth, g.spacing, g.thickness, g.color, g.back_color);
+    let signature = ([g.width, g.height, g.depth, g.spacing, g.thickness].map(f32::to_bits), g.color, g.back_color);
     if built.0.is_none() {
         built.0 = Some(signature);
         return;
@@ -186,38 +192,54 @@ fn rebuild_body(
 }
 
 /// Grid lines through the origin, drawn in orthographic views and when the
-/// inner grid is switched on.
+/// inner grid is switched on. They span the room.
 fn draw_inner_lines(mut gizmos: Gizmos, settings: Res<Settings>, view: Res<ViewPort>) {
     if !(settings.inner_grid || !view.is_perspective()) {
         return;
     }
-    let spacing = settings.grid.spacing.max(1) as f32;
-    let offsets: Vec<f32> = (1..).map(|k| k as f32 * spacing).take_while(|&o| o < REACH).flat_map(|o| [o, -o]).collect();
+    let g = &settings.grid;
+    let (hx, hz) = (g.width / 2.0, g.depth / 2.0);
+    let (bottom, top) = (g.floor, g.ceiling());
+    let steps = |lo: f32, hi: f32| {
+        let spacing = g.spacing.max(0.1);
+        let first = (lo / spacing).ceil() as i64;
+        let last = (hi / spacing).floor() as i64;
+        (first..=last).map(move |k| k as f32 * spacing).filter(|v| *v != 0.0)
+    };
 
     let green = Color::srgb_u8(0, 255, 0);
     let red = Color::srgb_u8(255, 0, 0);
     let blue = Color::srgb_u8(0, 0, 255);
-    for &o in &offsets {
-        // XY plane
-        gizmos.line(Vec3::new(o, REACH, 0.0), Vec3::new(o, -REACH, 0.0), green);
-        gizmos.line(Vec3::new(REACH, o, 0.0), Vec3::new(-REACH, o, 0.0), red);
-        // YZ plane
-        gizmos.line(Vec3::new(0.0, REACH, o), Vec3::new(0.0, -REACH, o), green);
-        gizmos.line(Vec3::new(0.0, o, REACH), Vec3::new(0.0, o, -REACH), blue);
-        // XZ plane
-        gizmos.line(Vec3::new(o, 0.0, REACH), Vec3::new(o, 0.0, -REACH), blue);
-        gizmos.line(Vec3::new(REACH, 0.0, o), Vec3::new(-REACH, 0.0, o), red);
+    for x in steps(-hx, hx) {
+        gizmos.line(Vec3::new(x, bottom, 0.0), Vec3::new(x, top, 0.0), green); // XY plane
+        gizmos.line(Vec3::new(x, 0.0, -hz), Vec3::new(x, 0.0, hz), blue); // XZ plane
     }
-    for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
-        gizmos.line(axis * REACH, -axis * REACH, Color::WHITE);
+    for y in steps(bottom, top) {
+        gizmos.line(Vec3::new(-hx, y, 0.0), Vec3::new(hx, y, 0.0), red); // XY plane
+        gizmos.line(Vec3::new(0.0, y, -hz), Vec3::new(0.0, y, hz), blue); // YZ plane
     }
+    for z in steps(-hz, hz) {
+        gizmos.line(Vec3::new(0.0, bottom, z), Vec3::new(0.0, top, z), green); // YZ plane
+        gizmos.line(Vec3::new(-hx, 0.0, z), Vec3::new(hx, 0.0, z), red); // XZ plane
+    }
+    gizmos.line(Vec3::new(-hx, 0.0, 0.0), Vec3::new(hx, 0.0, 0.0), Color::WHITE);
+    gizmos.line(Vec3::new(0.0, bottom, 0.0), Vec3::new(0.0, top, 0.0), Color::WHITE);
+    gizmos.line(Vec3::new(0.0, 0.0, -hz), Vec3::new(0.0, 0.0, hz), Color::WHITE);
 }
 
-/// Axis names at both ends of each axis, drawn even when the box is off.
-fn queue_axis_labels(mut labels: ResMut<WorldLabels>) {
-    for (axis, name) in [(Vec3::X, "X"), (Vec3::Y, "Y"), (Vec3::Z, "Z")] {
-        labels.add(axis * REACH, name, Color::WHITE);
-        labels.add(-axis * REACH, name, Color::WHITE);
+/// Axis names where each axis meets the walls, floor and ceiling.
+fn queue_axis_labels(mut labels: ResMut<WorldLabels>, settings: Res<Settings>) {
+    let g = &settings.grid;
+    let (hx, hz) = (g.width / 2.0, g.depth / 2.0);
+    for (position, name) in [
+        (Vec3::new(hx, 0.0, 0.0), "X"),
+        (Vec3::new(-hx, 0.0, 0.0), "X"),
+        (Vec3::new(0.0, g.ceiling(), 0.0), "Y"),
+        (Vec3::new(0.0, g.floor, 0.0), "Y"),
+        (Vec3::new(0.0, 0.0, hz), "Z"),
+        (Vec3::new(0.0, 0.0, -hz), "Z"),
+    ] {
+        labels.add(position, name, Color::WHITE);
     }
 }
 
@@ -235,10 +257,12 @@ mod tests {
         let bevy::render::mesh::VertexAttributeValues::Float32x3(p) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).unwrap() else { panic!() };
         let min = p.iter().fold(Vec3::MAX, |m, v| m.min(Vec3::from(*v)));
         let max = p.iter().fold(Vec3::MIN, |m, v| m.max(Vec3::from(*v)));
-        // Faces extend one unit past the 1000-unit box; the last strip on
-        // each axis is `thickness` (3) wide, so it pokes out to 503.
-        assert_eq!(min, Vec3::splat(-501.0));
-        assert_eq!(max, Vec3::splat(503.0));
+        // Centred horizontally, standing on y = 0 (the entity sits at the
+        // floor), faces a hair outside the room.
+        let gap = grid.thickness * 2.0;
+        assert_eq!(min, Vec3::new(-grid.width / 2.0 - gap, -gap, -grid.depth / 2.0 - gap));
+        assert!((max.y - (grid.height + gap)).abs() < 1e-4);
+        assert!(max.x >= grid.width / 2.0 && max.x < grid.width / 2.0 + 1.0);
         assert_eq!(mesh.attribute(Mesh::ATTRIBUTE_COLOR).unwrap().len(), n);
     }
 
@@ -246,7 +270,7 @@ mod tests {
     fn denser_grids_have_more_strips() {
         let mut grid = GridSettings::default();
         let sparse = build_body_mesh(&grid).count_vertices();
-        grid.spacing = 50;
+        grid.spacing = 5.0;
         assert!(build_body_mesh(&grid).count_vertices() > sparse);
     }
 }

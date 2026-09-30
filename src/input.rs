@@ -8,7 +8,7 @@
 
 use bevy::input::ButtonState;
 use bevy::input::keyboard::{Key, KeyboardInput};
-use bevy::input::mouse::{AccumulatedMouseMotion, MouseWheel};
+use bevy::input::mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel};
 
 use crate::touch::{Pointer, TAP_SLOP, TouchInput};
 use bevy::prelude::*;
@@ -146,8 +146,20 @@ fn mouse_look(
     }
 }
 
+/// Mouse wheel movement in notches. Browsers and touchpads report pixels
+/// (about 100 per notch) rather than lines.
+pub fn wheel_notches(events: &mut EventReader<MouseWheel>) -> f32 {
+    events
+        .read()
+        .map(|w| match w.unit {
+            MouseScrollUnit::Line => w.y,
+            MouseScrollUnit::Pixel => w.y / 100.0,
+        })
+        .sum()
+}
+
 fn wheel_zoom(mut wheel: EventReader<MouseWheel>, ui: Res<UiState>, mut view: ResMut<ViewPort>) {
-    let notches: f32 = wheel.read().map(|w| w.y).sum();
+    let notches = wheel_notches(&mut wheel);
     if notches != 0.0 && !ui.active && !ui.pointer_over_ui {
         view.wheel(notches);
     }
@@ -185,7 +197,8 @@ pub fn fly_step(input: &FlyInput, view: &ViewPort, settings: &mut Settings, mov:
             settings.current_speed = 0.0;
             return Vec3::ZERO;
         }
-        settings.current_speed = (settings.current_speed + settings.accel_speed * dt).min(settings.max_player_speed);
+        let start = settings.current_speed.max(settings.min_player_speed);
+        settings.current_speed = (start + settings.accel_speed * dt).min(settings.max_player_speed);
         force = mov * axes.y - strafe_left * axes.x;
         // Full speed for keys (normalised) or a fully pushed stick.
         force = force.normalize_or_zero() * axes.length().min(1.0) * settings.current_speed;
@@ -194,8 +207,11 @@ pub fn fly_step(input: &FlyInput, view: &ViewPort, settings: &mut Settings, mov:
         let flat = matches!(view.view_type, ViewType::Top | ViewType::Bottom);
         force += up * pan * axes.y;
         force -= if flat { Vec3::new(0.0, 0.0, -pan) } else { strafe_left * pan } * axes.x;
+        // Panning covers the visible width (zoom / 1000 units per pixel) in
+        // a couple of seconds.
+        force *= 8.0;
     }
-    force * dt * 8.0
+    force * dt
 }
 
 fn fly_camera(
@@ -223,6 +239,11 @@ fn fly_camera(
     };
     let step = fly_step(&input, &view, &mut settings, view.view_direction(rig), rig.up, time.delta_secs());
     rig.pos += step;
+    // The free camera lives inside the holodeck. (Orthographic views look
+    // at the room from outside, so they are not fenced in.)
+    if view.is_perspective() {
+        rig.pos = settings.grid.keep_inside(rig.pos);
+    }
 }
 
 #[cfg(test)]
@@ -236,7 +257,10 @@ mod tests {
     fn flying_forward_accelerates_along_the_view_direction() {
         let view = ViewPort::default();
         let mut settings = Settings::default();
-        let mut previous = 0.0;
+        // Moves at a useful speed straight away (not from a standstill).
+        let first = fly_step(&FORWARD, &view, &mut settings, Vec3::Z, Vec3::Y, 0.1);
+        assert!(first.z >= settings.min_player_speed * 0.1);
+        let mut previous = first.z;
         for _ in 0..5 {
             let step = fly_step(&FORWARD, &view, &mut settings, Vec3::Z, Vec3::Y, 0.1);
             assert_eq!((step.x, step.y), (0.0, 0.0));
@@ -283,6 +307,22 @@ mod tests {
     }
 
     #[test]
+    fn crossing_an_object_takes_a_fraction_of_a_second_and_the_room_several() {
+        let view = ViewPort::default();
+        let mut settings = Settings::default();
+        let mut travelled = 0.0;
+        let mut t = 0.0;
+        while travelled < 600.0 {
+            travelled += fly_step(&FORWARD, &view, &mut settings, Vec3::Z, Vec3::Y, 1.0 / 60.0).z;
+            t += 1.0 / 60.0;
+        }
+        assert!((8.0..20.0).contains(&t), "crossing the 600-unit room took {t}s");
+        let mut fresh = Settings::default();
+        let first_second: f32 = (0..60).map(|_| fly_step(&FORWARD, &view, &mut fresh, Vec3::Z, Vec3::Y, 1.0 / 60.0).z).sum();
+        assert!((15.0..45.0).contains(&first_second), "first second covers {first_second} units");
+    }
+
+    #[test]
     fn half_pushed_stick_flies_at_half_speed() {
         let view = ViewPort::default();
         let half = FlyInput { forward: false, back: false, left: false, right: false, stick: Vec2::new(0.0, 0.5) };
@@ -301,6 +341,7 @@ mod tests {
         view.set_view(ViewType::Front, &mut rig, &mut settings);
         let step = fly_step(&FORWARD, &view, &mut settings, Vec3::NEG_Z, Vec3::Y, 1.0);
         assert!((step - Vec3::new(0.0, 80.0, 0.0)).length() < 1e-4, "{step:?}");
+        // 80 units a second, with 128 units visible across the window.
         view.zoom_level = 200.0;
         let bigger = fly_step(&FORWARD, &view, &mut settings, Vec3::NEG_Z, Vec3::Y, 1.0);
         assert!(bigger.y > step.y);
