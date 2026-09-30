@@ -60,8 +60,11 @@ pub const MENU_TEXT_SELECTED: Color = rgb(255, 255, 255);
 pub const MENU_TEXT_DISABLED: Color = rgb(60, 60, 60);
 pub const MENU_CHECK: Color = rgb(0, 255, 0);
 
-/// The original used an 18px bold Courier bitmap font.
-pub const FONT_SIZE: f32 = 17.0;
+/// The original created an 18px bold Courier font. A positive height in
+/// `CreateFont` is the *cell* height (ascent + descent, 1.133 em for Courier
+/// New and its metric clone Liberation Mono), so the glyphs are 18 / 1.133
+/// = 15.9 px.
+pub const FONT_SIZE: f32 = 16.0;
 /// Horizontal advance of one character of the monospaced UI font.
 pub const CHAR_WIDTH: f32 = FONT_SIZE * 0.6;
 /// Height of the title strip (the original's drag area was the top 32px).

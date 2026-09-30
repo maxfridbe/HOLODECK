@@ -3,6 +3,9 @@
 // (gradient quads with cut corners), which bevy_ui cannot draw by itself.
 #import bevy_ui::ui_vertex_output::UiVertexOutput
 
+// Colours arrive as sRGB (0-1): the original's fixed-function GL blended
+// vertex colours in that space, so gradients are graded there too and only
+// converted to linear for output.
 struct Panel {
     top: vec4<f32>,
     bottom: vec4<f32>,
@@ -39,6 +42,12 @@ fn panel_distance(p: vec2<f32>, size: vec2<f32>) -> f32 {
     return length(local) - r;
 }
 
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let low = c / 12.92;
+    let high = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
+    return select(high, low, c <= vec3<f32>(0.04045));
+}
+
 @fragment
 fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
     let p = in.uv * in.size;
@@ -50,5 +59,5 @@ fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
         let inner = clamp(0.5 - (d + border), 0.0, 1.0);
         color = mix(panel.border_color, color, inner);
     }
-    return vec4<f32>(color.rgb, color.a * coverage);
+    return vec4<f32>(srgb_to_linear(color.rgb), color.a * coverage);
 }

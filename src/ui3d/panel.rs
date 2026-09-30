@@ -6,12 +6,13 @@ use bevy::render::render_resource::{AsBindGroup, ShaderRef};
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 pub struct PanelMaterial {
+    /// Colours are stored as sRGB and graded in sRGB, like the original GL.
     #[uniform(0)]
-    pub top: LinearRgba,
+    pub top: Vec4,
     #[uniform(0)]
-    pub bottom: LinearRgba,
+    pub bottom: Vec4,
     #[uniform(0)]
-    pub border_color: LinearRgba,
+    pub border_color: Vec4,
     /// Corner sizes in pixels: top-left, top-right, bottom-right, bottom-left.
     #[uniform(0)]
     pub corners: Vec4,
@@ -33,7 +34,7 @@ impl PanelMaterial {
 
     /// Top-to-bottom gradient.
     pub fn gradient(top: Color, bottom: Color) -> Self {
-        Self { top: top.to_linear(), bottom: bottom.to_linear(), border_color: LinearRgba::NONE, corners: Vec4::ZERO, params: Vec4::ZERO }
+        Self { top: srgb(top), bottom: srgb(bottom), border_color: Vec4::ZERO, corners: Vec4::ZERO, params: Vec4::ZERO }
     }
 
     /// Rounded corners (top-left, top-right, bottom-right, bottom-left).
@@ -51,10 +52,14 @@ impl PanelMaterial {
     }
 
     pub fn bordered(mut self, color: Color, width: f32) -> Self {
-        self.border_color = color.to_linear();
+        self.border_color = srgb(color);
         self.params.y = width;
         self
     }
+}
+
+fn srgb(color: Color) -> Vec4 {
+    Vec4::from_array(color.to_srgba().to_f32_array())
 }
 
 /// Grey level helper: the original specified colours as 0-255 bytes.
